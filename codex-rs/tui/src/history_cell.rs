@@ -76,6 +76,16 @@ impl HistoryCell for PlainHistoryCell {
     }
 }
 
+/// Create a simple informational block from raw text lines.
+pub(crate) fn new_info_block(lines: Vec<String>) -> PlainHistoryCell {
+    let mut out: Vec<Line<'static>> = Vec::new();
+    for l in lines {
+        out.push(Line::from(l));
+    }
+    out.push(Line::from(""));
+    PlainHistoryCell { lines: out }
+}
+
 pub(crate) struct ExecCell {
     pub(crate) command: Vec<String>,
     pub(crate) parsed: Vec<ParsedCommand>,

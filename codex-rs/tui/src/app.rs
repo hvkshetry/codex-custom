@@ -10,6 +10,8 @@ use crate::onboarding::onboarding_screen::OnboardingScreen;
 use crate::onboarding::onboarding_screen::OnboardingScreenArgs;
 use crate::slash_command::SlashCommand;
 use crate::tui;
+use crate::history_cell::new_info_block;
+use crate::history_cell::HistoryCell;
 use codex_core::ConversationManager;
 use codex_core::config::Config;
 use codex_core::protocol::Event;
@@ -414,6 +416,48 @@ impl App<'_> {
                     SlashCommand::Mention => {
                         if let AppState::Chat { widget } = &mut self.app_state {
                             widget.insert_str("@");
+                        }
+                    }
+                    SlashCommand::Agents => {
+                        if let AppState::Chat { .. } = &mut self.app_state {
+                            let cwd = self.config.cwd.clone();
+                            let mut lines: Vec<String> = Vec::new();
+                            match codex_core::agents::discover_project_codex_dir(Some(cwd)) {
+                                Ok(Some(dir)) => match codex_core::agents::list_agents(&dir) {
+                                    Ok(names) if !names.is_empty() => {
+                                        lines.push("Agents:".to_string());
+                                        for n in names { lines.push(format!("- {}", n)); }
+                                    }
+                                    Ok(_) => lines.push("No agents found in .codex/agents".to_string()),
+                                    Err(e) => lines.push(format!("Error listing agents: {e}")),
+                                },
+                                Ok(None) => lines.push("No project .codex/ directory discovered".to_string()),
+                                Err(e) => lines.push(format!("Error discovering project: {e}")),
+                            }
+                            self.app_event_tx
+                                .send(AppEvent::InsertHistory(new_info_block(lines).display_lines()));
+                            self.app_event_tx.send(AppEvent::RequestRedraw);
+                        }
+                    }
+                    SlashCommand::Teams => {
+                        if let AppState::Chat { .. } = &mut self.app_state {
+                            let cwd = self.config.cwd.clone();
+                            let mut lines: Vec<String> = Vec::new();
+                            match codex_core::agents::discover_project_codex_dir(Some(cwd)) {
+                                Ok(Some(dir)) => match codex_core::agents::list_teams(&dir) {
+                                    Ok(names) if !names.is_empty() => {
+                                        lines.push("Teams:".to_string());
+                                        for n in names { lines.push(format!("- {}", n)); }
+                                    }
+                                    Ok(_) => lines.push("No teams found in .codex/teams".to_string()),
+                                    Err(e) => lines.push(format!("Error listing teams: {e}")),
+                                },
+                                Ok(None) => lines.push("No project .codex/ directory discovered".to_string()),
+                                Err(e) => lines.push(format!("Error discovering project: {e}")),
+                            }
+                            self.app_event_tx
+                                .send(AppEvent::InsertHistory(new_info_block(lines).display_lines()));
+                            self.app_event_tx.send(AppEvent::RequestRedraw);
                         }
                     }
                     SlashCommand::Status => {
