@@ -522,7 +522,9 @@ cargo test
 
 Codex supports a rich set of configuration options documented in [`codex-rs/config.md`](./codex-rs/config.md).
 
-By default, Codex loads its configuration from `~/.codex/config.toml`.
+By default, Codex loads its configuration from `~/.codex/config.toml`. In the custom Codex build, a project-level `.codex/config.toml` will be discovered by walking up from the current working directory and merged over the global config. CLI `-c` overrides still take highest precedence.
+
+See `docs/agents-teams.md` for the project `.codex/` layout, agent and team configuration, and precedence rules across global vs. project vs. agent vs. team prompts and settings.
 
 Though `--config` can be used to set/override ad-hoc config values for individual invocations of `codex`.
 

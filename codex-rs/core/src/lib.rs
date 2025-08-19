@@ -11,6 +11,7 @@ mod chat_completions;
 mod client;
 mod client_common;
 pub mod codex;
+pub mod agents;
 mod codex_conversation;
 pub use codex_conversation::CodexConversation;
 pub mod config;

@@ -785,7 +785,7 @@ impl Config {
 }
 
 /// Resolve a preliminary cwd for configuration discovery.
-fn resolve_preliminary_cwd(cwd_override: Option<PathBuf>) -> std::io::Result<PathBuf> {
+pub(crate) fn resolve_preliminary_cwd(cwd_override: Option<PathBuf>) -> std::io::Result<PathBuf> {
     use std::env;
     match cwd_override {
         None => env::current_dir(),
@@ -795,7 +795,7 @@ fn resolve_preliminary_cwd(cwd_override: Option<PathBuf>) -> std::io::Result<Pat
 }
 
 /// Walk up from `start` to find a directory that contains `.codex/config.toml`.
-fn find_project_codex_dir(start: &Path) -> Option<PathBuf> {
+pub(crate) fn find_project_codex_dir(start: &Path) -> Option<PathBuf> {
     let mut current = start;
     loop {
         let candidate = current.join(".codex").join(CONFIG_TOML_FILE);
