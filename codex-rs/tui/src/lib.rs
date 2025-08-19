@@ -11,6 +11,8 @@ use codex_core::config::ConfigToml;
 use codex_core::config::find_codex_home;
 use codex_core::config::load_config_as_toml_with_cli_overrides;
 use codex_core::protocol::AskForApproval;
+use codex_core::agents;
+use codex_core::agents::AgentDefinition;
 use codex_core::protocol::SandboxPolicy;
 use codex_login::AuthMode;
 use codex_login::CodexAuth;
@@ -246,6 +248,29 @@ pub async fn run_main(
         eprintln!("");
     }
 
+    // Smart-run: if initial prompt starts with "@name", route to an agent (teams soon).
+    let mut cli = cli; // take ownership and allow mutation
+    if let Some(p) = cli.prompt.clone() {
+        if let Some((tag, rest)) = parse_leading_tag(&p) {
+            if let Ok(Some(project_dir)) = agents::discover_project_codex_dir(Some(config.cwd.clone())) {
+                if let Ok(names) = agents::list_agents(&project_dir) {
+                    if names.iter().any(|n| n == &tag) {
+                        match agents::load_agent(&project_dir, &tag, &config_toml) {
+                            Ok(agent_def) => {
+                                apply_agent_target(&mut config, &agent_def);
+                                cli.prompt = rest;
+                            }
+                            Err(e) => {
+                                #[allow(clippy::print_stderr)]
+                                eprintln!("Error loading agent '{}': {e}", tag);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     run_ratatui_app(cli, config, should_show_trust_screen)
         .map_err(|err| std::io::Error::other(err.to_string()))
 }
@@ -283,6 +308,44 @@ fn run_ratatui_app(
     session_log::log_session_end();
     // ignore error when collecting usage – report underlying error instead
     app_result.map(|_| usage)
+}
+
+fn parse_leading_tag(s: &str) -> Option<(String, Option<String>)> {
+    let trimmed = s.trim_start();
+    let mut chars = trimmed.chars();
+    if chars.next()? != '@' { return None; }
+    let mut name = String::new();
+    for c in chars.clone() {
+        if c.is_whitespace() { break; }
+        name.push(c);
+    }
+    if name.is_empty() { return None; }
+    let after_tag = &trimmed[1 + name.len()..].trim_start();
+    let rest = if after_tag.is_empty() { None } else { Some(after_tag.to_string()) };
+    Some((name, rest))
+}
+
+fn apply_agent_target(config: &mut Config, agent: &AgentDefinition) {
+    // Model override
+    if let Some(m) = agent.config.model.as_ref() {
+        config.model = m.clone();
+    }
+    // Provider override
+    if let Some(provider_id) = agent.config.model_provider.as_ref() {
+        if let Some(info) = config.model_providers.get(provider_id).cloned() {
+            config.model_provider_id = provider_id.clone();
+            config.model_provider = info;
+        }
+    }
+    // Tool toggles
+    if let Some(v) = agent.config.include_apply_patch_tool { config.include_apply_patch_tool = v; }
+    if let Some(v) = agent.config.include_plan_tool { config.include_plan_tool = v; }
+    // Agent prompt as base instructions override
+    if let Some(prompt) = agent.prompt.as_ref() {
+        config.base_instructions = Some(prompt.clone());
+    }
+    // Per-agent MCP servers (already merged if inherit flag set).
+    config.mcp_servers = agent.mcp_servers.clone();
 }
 
 #[expect(
