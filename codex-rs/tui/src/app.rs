@@ -14,6 +14,9 @@ use crate::history_cell::new_info_block;
 use crate::history_cell::HistoryCell;
 use codex_core::agents;
 use codex_core::protocol::InputItem;
+use codex_core::NewConversation;
+// ConversationManager already imported below; avoid duplicate import
+use codex_core::config::Config as CoreConfig;
 use crate::parse_leading_tag; // used by ChatWidget via crate import
 #[derive(Clone, Debug)]
 struct TeamContext {
@@ -24,6 +27,9 @@ struct TeamContext {
     next_idx: usize,
     turns_taken: usize,
     max_turns: Option<usize>,
+    selector_model: Option<String>,
+    selector_prompt: Option<String>,
+    allow_repeated_speaker: bool,
 }
 use codex_core::ConversationManager;
 use codex_core::config::Config;
@@ -422,6 +428,31 @@ impl App<'_> {
                                                 .get("max_turns")
                                                 .and_then(|v| v.as_integer())
                                                 .map(|i| i as usize);
+                                            // Extract selector config
+                                            let (selector_model, selector_prompt, allow_repeated_speaker) = {
+                                                let m = team_def
+                                                    .config
+                                                    .selector
+                                                    .get("model")
+                                                    .and_then(|v| v.as_str())
+                                                    .map(|s| s.to_string());
+                                                let pf = team_def
+                                                    .config
+                                                    .selector
+                                                    .get("prompt_file")
+                                                    .and_then(|v| v.as_str())
+                                                    .map(|s| team_def.file.parent().unwrap().join(s));
+                                                let p = pf
+                                                    .as_ref()
+                                                    .and_then(|path| std::fs::read_to_string(path).ok());
+                                                let ars = team_def
+                                                    .config
+                                                    .selector
+                                                    .get("allow_repeated_speaker")
+                                                    .and_then(|v| v.as_bool())
+                                                    .unwrap_or(false);
+                                                (m, p, ars)
+                                            };
                                             self.team_context = Some(TeamContext {
                                                 name: name.clone(),
                                                 prompt: team_def.prompt.clone(),
@@ -430,6 +461,9 @@ impl App<'_> {
                                                 next_idx: 0,
                                                 turns_taken: 0,
                                                 max_turns,
+                                                selector_model,
+                                                selector_prompt,
+                                                allow_repeated_speaker,
                                             });
                                         }
                                         Err(e) => {
@@ -506,9 +540,9 @@ impl App<'_> {
                         if let Op::UserInput { items } = &op {
                             if let Some(InputItem::Text { text }) = items.first() {
                                 // Skip if the user is explicitly tagging a target at start of line.
-                                if self.team_context.is_some() && !text.trim_start().starts_with('@') {
-                                    // Check termination
-                                    if let Some(tc) = &mut self.team_context {
+                                if let Some(tc) = &mut self.team_context {
+                                    if !text.trim_start().starts_with('@') {
+                                        // Check termination
                                         if let Some(limit) = tc.max_turns {
                                             if tc.turns_taken >= limit {
                                                 let msg = format!("Team '{}' reached max_turns={}", tc.name, limit);
@@ -517,22 +551,67 @@ impl App<'_> {
                                                 continue;
                                             }
                                         }
-                                        // Round-robin selection for now.
-                                        if tc.members.is_empty() {
-                                            self.pending_history_lines.extend(new_info_block(vec!["Team has no members".to_string()]).display_lines());
-                                            self.app_event_tx.send(AppEvent::RequestRedraw);
+                                        // Selection: if mode == selector, call LLM-based selector; else round-robin.
+                                        let mode = tc.mode.clone().unwrap_or_else(|| "round_robin".to_string());
+                                        if mode.eq_ignore_ascii_case("selector") {
+                                            if tc.selector_model.is_none() {
+                                                self.pending_history_lines.extend(new_info_block(vec!["Selector model not configured for team".to_string()]).display_lines());
+                                                self.app_event_tx.send(AppEvent::RequestRedraw);
+                                                continue;
+                                            }
+                                            let selector_model = tc.selector_model.clone().unwrap();
+                                            let selector_prompt = tc.selector_prompt.clone();
+                                            let team_name = tc.name.clone();
+                                            let candidates = tc.members.clone();
+                                            let message = text.clone();
+                                            let allow_repeat = tc.allow_repeated_speaker;
+                                            let last_idx = if tc.next_idx == 0 { tc.members.len().saturating_sub(1) } else { tc.next_idx - 1 };
+                                            let last_speaker = tc.members.get(last_idx).cloned();
+                                            let app_tx = self.app_event_tx.clone();
+                                            let server = self.server.clone();
+                                            let mut sel_cfg = self.config.clone();
+                                            sel_cfg.model = selector_model;
+                                            // Build selection prompt
+                                            let built_prompt = build_selector_prompt(&team_name, &candidates, selector_prompt.as_deref(), &message, allow_repeat, last_speaker.as_deref());
+                                            tokio::spawn(async move {
+                                                match server.new_conversation(sel_cfg).await {
+                                                    Ok(NewConversation { conversation, .. }) => {
+                                                        let _ = conversation.submit(Op::UserInput { items: vec![InputItem::Text { text: built_prompt }] }).await;
+                                                        let mut selected: Option<String> = None;
+                                                        while let Ok(ev) = conversation.next_event().await {
+                                                            if let codex_core::protocol::EventMsg::AgentMessage(msg) = ev.msg {
+                                                                let name = msg.message.trim().to_string();
+                                                                selected = Some(name);
+                                                                break;
+                                                            }
+                                                        }
+                                                        if let Some(name) = selected {
+                                                            app_tx.send(AppEvent::SwitchToAgent { name, initial_prompt: Some(message) });
+                                                        } else {
+                                                            app_tx.send(AppEvent::InsertHistory(new_info_block(vec!["Selector returned no choice".to_string()]).display_lines()));
+                                                            app_tx.send(AppEvent::RequestRedraw);
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        app_tx.send(AppEvent::InsertHistory(new_info_block(vec![format!("Selector init failed: {e}")]).display_lines()));
+                                                        app_tx.send(AppEvent::RequestRedraw);
+                                                    }
+                                                }
+                                            });
+                                            continue;
+                                        } else {
+                                            if tc.members.is_empty() {
+                                                self.pending_history_lines.extend(new_info_block(vec!["Team has no members".to_string()]).display_lines());
+                                                self.app_event_tx.send(AppEvent::RequestRedraw);
+                                                continue;
+                                            }
+                                            let idx = tc.next_idx % tc.members.len();
+                                            let member = tc.members[idx].clone();
+                                            tc.next_idx = (tc.next_idx + 1) % tc.members.len();
+                                            tc.turns_taken += 1;
+                                            self.app_event_tx.send(AppEvent::SwitchToAgent { name: member, initial_prompt: Some(text.clone()) });
                                             continue;
                                         }
-                                        let idx = tc.next_idx % tc.members.len();
-                                        let member = tc.members[idx].clone();
-                                        tc.next_idx = (tc.next_idx + 1) % tc.members.len();
-                                        tc.turns_taken += 1;
-                                        // Dispatch a switch to the selected member with the same input text.
-                                        self.app_event_tx.send(AppEvent::SwitchToAgent {
-                                            name: member,
-                                            initial_prompt: Some(text.clone()),
-                                        });
-                                        continue;
                                     }
                                 }
                             }
@@ -844,7 +923,7 @@ impl App<'_> {
         }
     }
 
-    fn dispatch_codex_event(&mut self, event: Event) {
+fn dispatch_codex_event(&mut self, event: Event) {
         match &mut self.app_state {
             AppState::Chat { widget } => widget.handle_codex_event(event),
             AppState::Onboarding { .. } => {}
@@ -852,6 +931,41 @@ impl App<'_> {
     }
 }
 
+fn build_selector_prompt(
+    team_name: &str,
+    candidates: &[String],
+    selector_prompt: Option<&str>,
+    user_message: &str,
+    allow_repeated: bool,
+    last_speaker: Option<&str>,
+) -> String {
+    let base = selector_prompt.unwrap_or(
+        "You are a team orchestrator. Given the user message and the list of candidates, choose exactly one candidate to handle the next step.\n\nReturn ONLY the candidate name, exactly as shown in the list. No explanations."
+    );
+    let mut out = String::new();
+    out.push_str(base);
+    out.push_str("\n\nTeam: ");
+    out.push_str(team_name);
+    out.push_str("\nUser Message:\n");
+    out.push_str(user_message);
+    out.push_str("\n\nCandidates:\n");
+    for c in candidates {
+        out.push_str("- ");
+        out.push_str(c);
+        out.push('\n');
+    }
+    out.push_str("\nPolicy:\n");
+    if !allow_repeated {
+        out.push_str("- Do not choose the same speaker twice in a row.\n");
+        if let Some(last) = last_speaker {
+            out.push_str("- The last speaker was: ");
+            out.push_str(last);
+            out.push('\n');
+        }
+    }
+    out.push_str("\nAnswer with exactly one candidate name from the list above.\n");
+    out
+}
 fn should_show_onboarding(
     login_status: LoginStatus,
     config: &Config,
