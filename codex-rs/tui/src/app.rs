@@ -366,6 +366,54 @@ impl App<'_> {
                                 }
                             };
 
+                            // Try team by name first; if found, pick first member.
+                            if let Ok(team_def) = agents::load_team(&project_dir, &name) {
+                                if let Some(first_member) = team_def.config.members.first() {
+                                    match agents::load_agent(&project_dir, first_member, &config_toml) {
+                                        Ok(agent_def) => {
+                                            let mut new_cfg = self.config.clone();
+                                            if let Some(m) = agent_def.config.model.as_ref() { new_cfg.model = m.clone(); }
+                                            if let Some(provider_id) = agent_def.config.model_provider.as_ref() {
+                                                if let Some(info) = new_cfg.model_providers.get(provider_id).cloned() {
+                                                    new_cfg.model_provider_id = provider_id.clone();
+                                                    new_cfg.model_provider = info;
+                                                }
+                                            }
+                                            if let Some(v) = agent_def.config.include_apply_patch_tool { new_cfg.include_apply_patch_tool = v; }
+                                            if let Some(v) = agent_def.config.include_plan_tool { new_cfg.include_plan_tool = v; }
+                                            // Combine team prompt + agent prompt if present.
+                                            let combined_prompt = match (team_def.prompt.as_ref(), agent_def.prompt.as_ref()) {
+                                                (Some(t), Some(a)) => Some(format!("{}\n\n{}", t, a)),
+                                                (Some(t), None) => Some(t.clone()),
+                                                (None, Some(a)) => Some(a.clone()),
+                                                (None, None) => None,
+                                            };
+                                            if let Some(p) = combined_prompt { new_cfg.base_instructions = Some(p); }
+                                            new_cfg.mcp_servers = agent_def.mcp_servers.clone();
+                                            let new_widget = Box::new(ChatWidget::new(
+                                                new_cfg,
+                                                self.server.clone(),
+                                                self.app_event_tx.clone(),
+                                                initial_prompt,
+                                                Vec::new(),
+                                                self.enhanced_keys_supported,
+                                            ));
+                                            self.app_state = AppState::Chat { widget: new_widget };
+                                            self.app_event_tx.send(AppEvent::RequestRedraw);
+                                        }
+                                        Err(e) => {
+                                            lines.push(format!("Failed to load first member '{}' of team '{}': {e}", first_member, name));
+                                            self.pending_history_lines.extend(new_info_block(lines).display_lines());
+                                        }
+                                    }
+                                    continue;
+                                } else {
+                                    lines.push(format!("Team '{}' has no members", name));
+                                    self.pending_history_lines.extend(new_info_block(lines).display_lines());
+                                    continue;
+                                }
+                            }
+
                             match agents::load_agent(&project_dir, &name, &config_toml) {
                                 Ok(agent_def) => {
                                     // Build a new Config by applying agent target on top of current.
@@ -395,7 +443,7 @@ impl App<'_> {
                                     self.app_event_tx.send(AppEvent::RequestRedraw);
                                 }
                                 Err(e) => {
-                                    lines.push(format!("Unknown agent '@{}' or failed to load: {e}", name));
+                                    lines.push(format!("Unknown agent or team '@{}' (load error: {e})", name));
                                     self.pending_history_lines.extend(new_info_block(lines).display_lines());
                                 }
                             }

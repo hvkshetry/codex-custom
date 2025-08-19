@@ -265,6 +265,30 @@ pub async fn run_main(
                                 eprintln!("Error loading agent '{}': {e}", tag);
                             }
                         }
+                        // done routing
+                    } else if let Ok(team_def) = agents::load_team(&project_dir, &tag) {
+                        if let Some(first_member) = team_def.config.members.first() {
+                            match agents::load_agent(&project_dir, first_member, &config_toml) {
+                                Ok(mut agent_def) => {
+                                    // Combine team + agent prompts
+                                    if let Some(team_p) = team_def.prompt.as_ref() {
+                                        agent_def.prompt = Some(match agent_def.prompt.take() {
+                                            Some(ap) => format!("{}\n\n{}", team_p, ap),
+                                            None => team_p.clone(),
+                                        });
+                                    }
+                                    apply_agent_target(&mut config, &agent_def);
+                                    cli.prompt = rest;
+                                }
+                                Err(e) => {
+                                    #[allow(clippy::print_stderr)]
+                                    eprintln!("Failed to load first member '{}' of team '{}': {e}", first_member, tag);
+                                }
+                            }
+                        } else {
+                            #[allow(clippy::print_stderr)]
+                            eprintln!("Team '{}' has no members", tag);
+                        }
                     }
                 }
             }
