@@ -15,6 +15,7 @@ use crate::history_cell::HistoryCell;
 use codex_core::agents;
 use codex_core::protocol::InputItem;
 use codex_core::NewConversation;
+use codex_core::workflows;
 // ConversationManager already imported below; avoid duplicate import
 use codex_core::config::Config as CoreConfig;
 use crate::parse_leading_tag; // used by ChatWidget via crate import
@@ -30,6 +31,21 @@ struct TeamContext {
     selector_model: Option<String>,
     selector_prompt: Option<String>,
     allow_repeated_speaker: bool,
+}
+
+#[derive(Clone, Debug)]
+struct WorkflowContext {
+    name: String,
+    steps: Vec<WorkflowStepRuntime>,
+    index: usize,
+}
+
+#[derive(Clone, Debug)]
+struct WorkflowStepRuntime {
+    kind: String, // agent|team
+    id: String,
+    prompt: Option<String>,
+    max_turns: Option<usize>,
 }
 use codex_core::ConversationManager;
 use codex_core::config::Config;
@@ -94,6 +110,8 @@ pub(crate) struct App<'a> {
     frame_schedule_tx: std::sync::mpsc::Sender<Instant>,
     /// Optional active team context when the user switched to a team.
     team_context: Option<TeamContext>,
+    /// Optional active workflow context (sequential preview).
+    workflow_context: Option<WorkflowContext>,
 }
 
 /// Aggregate parameters needed to create a `ChatWidget`, as creation may be
@@ -251,11 +269,45 @@ impl App<'_> {
             commit_anim_running: Arc::new(AtomicBool::new(false)),
             frame_schedule_tx: frame_tx,
             team_context: None,
+            workflow_context: None,
         }
     }
 
     fn schedule_frame_in(&self, dur: Duration) {
         let _ = self.frame_schedule_tx.send(Instant::now() + dur);
+    }
+
+    fn start_current_workflow_step(&mut self) {
+        let Some(ctx) = &self.workflow_context else { return; };
+        if ctx.index >= ctx.steps.len() { return; }
+        let step = ctx.steps[ctx.index].clone();
+        match step.kind.as_str() {
+            "agent" => {
+                self.app_event_tx.send(AppEvent::SwitchToAgent { name: step.id, initial_prompt: step.prompt });
+            }
+            "team" => {
+                // Switch to team; initial prompt sent to first member; team context will be set.
+                self.app_event_tx.send(AppEvent::SwitchToAgent { name: step.id, initial_prompt: step.prompt });
+            }
+            _ => {
+                self.pending_history_lines.extend(new_info_block(vec![format!("Unsupported step kind: {}", step.kind)]).display_lines());
+                self.app_event_tx.send(AppEvent::RequestRedraw);
+            }
+        }
+    }
+
+    fn advance_workflow(&mut self) {
+        if let Some(ctx) = &mut self.workflow_context {
+            ctx.index += 1;
+            if ctx.index < ctx.steps.len() {
+                self.start_current_workflow_step();
+            } else {
+                let name = ctx.name.clone();
+                self.workflow_context = None;
+                self.pending_history_lines.extend(new_info_block(vec![format!("Workflow '{}' completed", name)]).display_lines());
+                self.app_event_tx.send(AppEvent::RequestRedraw);
+            }
+        }
     }
 
     pub(crate) fn run(&mut self, terminal: &mut tui::Tui) -> Result<()> {
@@ -365,10 +417,59 @@ impl App<'_> {
                     self.dispatch_paste_event(text);
                 }
                 AppEvent::CodexEvent(event) => {
+                    // Intercept TaskComplete to advance workflow steps, then forward to UI.
+                    if let codex_core::protocol::EventMsg::TaskComplete(_ev) = &event.msg {
+                        if self.workflow_context.is_some() {
+                            self.advance_workflow();
+                        }
+                    }
                     self.dispatch_codex_event(event);
                 }
                 AppEvent::ExitRequest => {
                     break;
+                }
+                AppEvent::RunWorkflow { name } => {
+                    // Discover and load workflow
+                    let mut lines: Vec<String> = Vec::new();
+                    match codex_core::agents::discover_project_codex_dir(Some(self.config.cwd.clone())) {
+                        Ok(Some(project_dir)) => match codex_core::workflows::load_workflow(&project_dir, &name) {
+                            Ok(wf) => {
+                                if wf.steps.is_empty() {
+                                    self.pending_history_lines.extend(new_info_block(vec![format!("Workflow '{}' has no steps", name)]).display_lines());
+                                    self.app_event_tx.send(AppEvent::RequestRedraw);
+                                } else {
+                                    // Build runtime steps
+                                    let steps: Vec<WorkflowStepRuntime> = wf
+                                        .steps
+                                        .into_iter()
+                                        .map(|s| WorkflowStepRuntime {
+                                            kind: match s.kind { codex_core::workflows::StepKind::Agent => "agent".to_string(), codex_core::workflows::StepKind::Team => "team".to_string() },
+                                            id: s.id,
+                                            prompt: s.prompt,
+                                            max_turns: s.max_turns,
+                                        })
+                                        .collect();
+                                    self.workflow_context = Some(WorkflowContext { name: wf.name, steps, index: 0 });
+                                    self.start_current_workflow_step();
+                                }
+                            }
+                            Err(e) => {
+                                lines.push(format!("Failed to load workflow '{}': {e}", name));
+                                self.pending_history_lines.extend(new_info_block(lines).display_lines());
+                                self.app_event_tx.send(AppEvent::RequestRedraw);
+                            }
+                        },
+                        Ok(None) => {
+                            lines.push("No project .codex/ directory discovered".to_string());
+                            self.pending_history_lines.extend(new_info_block(lines).display_lines());
+                            self.app_event_tx.send(AppEvent::RequestRedraw);
+                        }
+                        Err(e) => {
+                            lines.push(format!("Error discovering project: {e}"));
+                            self.pending_history_lines.extend(new_info_block(lines).display_lines());
+                            self.app_event_tx.send(AppEvent::RequestRedraw);
+                        }
+                    }
                 }
                 AppEvent::SwitchToAgent { name, initial_prompt } => {
                     // Discover project and load agent definition.
@@ -698,6 +799,27 @@ impl App<'_> {
                                     }
                                     Ok(_) => lines.push("No agents found in .codex/agents".to_string()),
                                     Err(e) => lines.push(format!("Error listing agents: {e}")),
+                                },
+                                Ok(None) => lines.push("No project .codex/ directory discovered".to_string()),
+                                Err(e) => lines.push(format!("Error discovering project: {e}")),
+                            }
+                            self.app_event_tx
+                                .send(AppEvent::InsertHistory(new_info_block(lines).display_lines()));
+                            self.app_event_tx.send(AppEvent::RequestRedraw);
+                        }
+                    }
+                    SlashCommand::Workflows => {
+                        if let AppState::Chat { .. } = &mut self.app_state {
+                            let cwd = self.config.cwd.clone();
+                            let mut lines: Vec<String> = Vec::new();
+                            match codex_core::agents::discover_project_codex_dir(Some(cwd)) {
+                                Ok(Some(dir)) => match codex_core::workflows::discover_workflows(&dir) {
+                                    Ok(names) if !names.is_empty() => {
+                                        lines.push("Workflows:".to_string());
+                                        for n in names { lines.push(format!("- {}", n)); }
+                                    }
+                                    Ok(_) => lines.push("No workflows found in .codex/workflows".to_string()),
+                                    Err(e) => lines.push(format!("Error listing workflows: {e}")),
                                 },
                                 Ok(None) => lines.push("No project .codex/ directory discovered".to_string()),
                                 Err(e) => lines.push(format!("Error discovering project: {e}")),

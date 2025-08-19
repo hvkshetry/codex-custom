@@ -572,6 +572,15 @@ impl ChatWidget<'_> {
 
         // Intercept start-of-line "@agent ..." requests to switch sessions.
         if let Some((tag, rest)) = Self::parse_leading_tag(&text) {
+            if tag.eq_ignore_ascii_case("workflow") {
+                if let Some(ref rest_text) = rest {
+                    let name = rest_text.split_whitespace().next().unwrap_or("").to_string();
+                    if !name.is_empty() {
+                        self.app_event_tx.send(AppEvent::RunWorkflow { name });
+                        return;
+                    }
+                }
+            }
             // Defer handling to the App; do not submit this as user input.
             self.app_event_tx.send(AppEvent::SwitchToAgent {
                 name: tag,

@@ -70,4 +70,9 @@ pub(crate) enum AppEvent {
         name: String,
         initial_prompt: Option<String>,
     },
+
+    /// Run a workflow defined in .codex/workflows/<name>.toml
+    RunWorkflow {
+        name: String,
+    },
 }
