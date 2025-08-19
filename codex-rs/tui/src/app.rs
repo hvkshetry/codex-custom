@@ -14,6 +14,12 @@ use crate::history_cell::new_info_block;
 use crate::history_cell::HistoryCell;
 use codex_core::agents;
 use crate::parse_leading_tag; // used by ChatWidget via crate import
+#[derive(Clone, Debug)]
+struct TeamContext {
+    name: String,
+    prompt: Option<String>,
+    members: Vec<String>,
+}
 use codex_core::ConversationManager;
 use codex_core::config::Config;
 use codex_core::protocol::Event;
@@ -75,6 +81,8 @@ pub(crate) struct App<'a> {
     /// Channel to schedule one-shot animation frames; coalesced by a single
     /// scheduler thread.
     frame_schedule_tx: std::sync::mpsc::Sender<Instant>,
+    /// Optional active team context when the user switched to a team.
+    team_context: Option<TeamContext>,
 }
 
 /// Aggregate parameters needed to create a `ChatWidget`, as creation may be
@@ -231,6 +239,7 @@ impl App<'_> {
             enhanced_keys_supported,
             commit_anim_running: Arc::new(AtomicBool::new(false)),
             frame_schedule_tx: frame_tx,
+            team_context: None,
         }
     }
 
@@ -400,6 +409,12 @@ impl App<'_> {
                                             ));
                                             self.app_state = AppState::Chat { widget: new_widget };
                                             self.app_event_tx.send(AppEvent::RequestRedraw);
+                                            // Activate team context for subsequent @member overrides.
+                                            self.team_context = Some(TeamContext {
+                                                name: name.clone(),
+                                                prompt: team_def.prompt.clone(),
+                                                members: team_def.config.members.clone(),
+                                            });
                                         }
                                         Err(e) => {
                                             lines.push(format!("Failed to load first member '{}' of team '{}': {e}", first_member, name));
@@ -427,7 +442,18 @@ impl App<'_> {
                                     }
                                     if let Some(v) = agent_def.config.include_apply_patch_tool { new_cfg.include_apply_patch_tool = v; }
                                     if let Some(v) = agent_def.config.include_plan_tool { new_cfg.include_plan_tool = v; }
-                                    if let Some(prompt) = agent_def.prompt.as_ref() { new_cfg.base_instructions = Some(prompt.clone()); }
+                                    // If we are in an active team context, combine team prompt with agent prompt.
+                                    if let Some(tc) = &self.team_context {
+                                        let combined = match (tc.prompt.as_ref(), agent_def.prompt.as_ref()) {
+                                            (Some(t), Some(a)) => Some(format!("{}\n\n{}", t, a)),
+                                            (Some(t), None) => Some(t.clone()),
+                                            (None, Some(a)) => Some(a.clone()),
+                                            (None, None) => None,
+                                        };
+                                        if let Some(p) = combined { new_cfg.base_instructions = Some(p); }
+                                    } else if let Some(prompt) = agent_def.prompt.as_ref() {
+                                        new_cfg.base_instructions = Some(prompt.clone());
+                                    }
                                     new_cfg.mcp_servers = agent_def.mcp_servers.clone();
 
                                     // Spawn a fresh ChatWidget (new session) with optional initial prompt
