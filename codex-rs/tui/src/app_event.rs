@@ -63,4 +63,11 @@ pub(crate) enum AppEvent {
     /// Onboarding: result of login_with_chatgpt.
     OnboardingAuthComplete(Result<(), String>),
     OnboardingComplete(ChatWidgetArgs),
+
+    /// Request to switch to a new agent session by name, optionally with
+    /// an initial prompt to submit after the session is configured.
+    SwitchToAgent {
+        name: String,
+        initial_prompt: Option<String>,
+    },
 }

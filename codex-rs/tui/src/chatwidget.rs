@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use codex_core::config::Config;
+use crate::parse_leading_tag;
 use codex_core::protocol::AgentMessageDeltaEvent;
 use codex_core::protocol::AgentMessageEvent;
 use codex_core::protocol::AgentReasoningDeltaEvent;
@@ -569,6 +570,16 @@ impl ChatWidget<'_> {
         let UserMessage { text, image_paths } = user_message;
         let mut items: Vec<InputItem> = Vec::new();
 
+        // Intercept start-of-line "@agent ..." requests to switch sessions.
+        if let Some((tag, rest)) = Self::parse_leading_tag(&text) {
+            // Defer handling to the App; do not submit this as user input.
+            self.app_event_tx.send(AppEvent::SwitchToAgent {
+                name: tag,
+                initial_prompt: rest,
+            });
+            return;
+        }
+
         if !text.is_empty() {
             items.push(InputItem::Text { text: text.clone() });
         }
@@ -600,6 +611,12 @@ impl ChatWidget<'_> {
         if !text.is_empty() {
             self.add_to_history(&history_cell::new_user_prompt(text.clone()));
         }
+    }
+
+    /// Recognize a leading @tag at the start of the line.
+    /// Returns (name, rest) when found; otherwise None.
+    fn parse_leading_tag(s: &str) -> Option<(String, Option<String>)> {
+        parse_leading_tag(s)
     }
 
     pub(crate) fn handle_codex_event(&mut self, event: Event) {

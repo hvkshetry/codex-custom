@@ -12,6 +12,8 @@ use crate::slash_command::SlashCommand;
 use crate::tui;
 use crate::history_cell::new_info_block;
 use crate::history_cell::HistoryCell;
+use codex_core::agents;
+use crate::parse_leading_tag; // used by ChatWidget via crate import
 use codex_core::ConversationManager;
 use codex_core::config::Config;
 use codex_core::protocol::Event;
@@ -347,6 +349,66 @@ impl App<'_> {
                 }
                 AppEvent::ExitRequest => {
                     break;
+                }
+                AppEvent::SwitchToAgent { name, initial_prompt } => {
+                    // Discover project and load agent definition.
+                    let mut lines: Vec<String> = Vec::new();
+                    match agents::discover_project_codex_dir(Some(self.config.cwd.clone())) {
+                        Ok(Some(project_dir)) => {
+                            // Load project ConfigToml with CLI overrides set to none
+                            let codex_home = self.config.codex_home.clone();
+                            let config_toml = match codex_core::config::load_config_as_toml_with_cli_overrides(&codex_home, Vec::new()) {
+                                Ok(t) => t,
+                                Err(e) => {
+                                    lines.push(format!("Error loading config.toml: {e}"));
+                                    self.pending_history_lines.extend(new_info_block(lines).display_lines());
+                                    continue;
+                                }
+                            };
+
+                            match agents::load_agent(&project_dir, &name, &config_toml) {
+                                Ok(agent_def) => {
+                                    // Build a new Config by applying agent target on top of current.
+                                    let mut new_cfg = self.config.clone();
+                                    if let Some(m) = agent_def.config.model.as_ref() { new_cfg.model = m.clone(); }
+                                    if let Some(provider_id) = agent_def.config.model_provider.as_ref() {
+                                        if let Some(info) = new_cfg.model_providers.get(provider_id).cloned() {
+                                            new_cfg.model_provider_id = provider_id.clone();
+                                            new_cfg.model_provider = info;
+                                        }
+                                    }
+                                    if let Some(v) = agent_def.config.include_apply_patch_tool { new_cfg.include_apply_patch_tool = v; }
+                                    if let Some(v) = agent_def.config.include_plan_tool { new_cfg.include_plan_tool = v; }
+                                    if let Some(prompt) = agent_def.prompt.as_ref() { new_cfg.base_instructions = Some(prompt.clone()); }
+                                    new_cfg.mcp_servers = agent_def.mcp_servers.clone();
+
+                                    // Spawn a fresh ChatWidget (new session) with optional initial prompt
+                                    let new_widget = Box::new(ChatWidget::new(
+                                        new_cfg,
+                                        self.server.clone(),
+                                        self.app_event_tx.clone(),
+                                        initial_prompt,
+                                        Vec::new(),
+                                        self.enhanced_keys_supported,
+                                    ));
+                                    self.app_state = AppState::Chat { widget: new_widget };
+                                    self.app_event_tx.send(AppEvent::RequestRedraw);
+                                }
+                                Err(e) => {
+                                    lines.push(format!("Unknown agent '@{}' or failed to load: {e}", name));
+                                    self.pending_history_lines.extend(new_info_block(lines).display_lines());
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            lines.push("No project .codex/ directory discovered".to_string());
+                            self.pending_history_lines.extend(new_info_block(lines).display_lines());
+                        }
+                        Err(e) => {
+                            lines.push(format!("Error discovering project: {e}"));
+                            self.pending_history_lines.extend(new_info_block(lines).display_lines());
+                        }
+                    }
                 }
                 AppEvent::CodexOp(op) => match &mut self.app_state {
                     AppState::Chat { widget } => widget.submit_op(op),
