@@ -67,13 +67,14 @@ Alternatively, place a `mcp.toml` file next to `config.toml` with a top-level ma
 
 ```
 name = "dev-team"
-mode = "selector"  # route | coordinate | collaborate | round_robin | selector
+mode = "selector"  # round_robin | selector (selector = LLM-based only)
 prompt_file = "TEAM.md"     # default if omitted
 members = ["researcher", "coder", "reviewer"]
 
 [selector]
-model = "gpt-4o-mini"      # used for next-speaker selection when mode = selector
-allow_repeated_speaker = false
+model = "gpt-4o-mini"          # REQUIRED when mode = "selector"
+prompt_file = "SELECTOR.md"     # optional; otherwise uses a built-in selector prompt
+allow_repeated_speaker = false  # instructs selector to avoid repeats, validated at parse time
 
 [termination]
 max_turns = 20
@@ -82,7 +83,8 @@ mention_text = "TASK_COMPLETE"  # stop when mentioned
 
 Notes:
 - Teams have their own prompt, distinct from per-agent prompts. This mirrors Agno’s `Team` and AutoGen’s `SelectorGroupChat`, where the orchestrator/manager uses a separate instruction or selector prompt.
-- For `route`/`coordinate`/`collaborate`, Codex will use a leader-style orchestrator; for `round_robin`/`selector`, it will emulate AutoGen’s group chat sequencing semantics.
+- `round_robin`: fixed speaking order based on `members`. Each user turn routes to the next member (unless `@member` override).
+- `selector` (LLM-only): the selector model chooses from the listed `members`. There is no heuristic fallback. The selector prompt lists the candidates and enforces “return exactly one name”. If the output is invalid, Codex shows an error and does not advance.
 
 ## How Codex Loads Agents and Teams
 
@@ -93,6 +95,16 @@ Codex provides internal loaders (to be wired into CLI flows):
 - `load_agent(name)` reads the agent config, loads its `AGENTS.md`, and resolves per-agent MCP servers according to the inheritance flag.
 - `list_teams()` enumerates `.codex/teams/*.toml`.
 - `load_team(name)` reads the team config and loads the team prompt.
+
+## Selector Prompt
+
+When `mode = "selector"`, Codex constructs a selection prompt for the configured `selector.model`. You can customize it with `selector.prompt_file` (e.g., `SELECTOR.md`). The prompt includes:
+- Team name and a summary
+- The current user message
+- Candidate members (name list)
+- Policy (e.g., avoid repeating last speaker)
+
+Output requirement: one exact member name from the candidate list, with no explanations.
 
 ## Design Rationale (based on Agno and AutoGen)
 
@@ -140,4 +152,3 @@ max_turns = 16
 - Do agents inherit project MCP servers? By default, no. Set `inherit_mcp_from_project = true` in the agent config to merge them (agent keys override).
 - Where do team prompts live? In `prompt_file` or `TEAM.md` next to the team config.
 - How does Codex prioritize prompts? Agent-level prompts for agents, team-level prompts for orchestrators, project/global AGENTS.md is used as general guidance for single-agent sessions.
-
