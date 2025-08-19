@@ -650,6 +650,7 @@ mod tests {
             ConfigToml::default(),
             ConfigOverrides::default(),
             std::env::temp_dir(),
+            None,
         )
         .expect("load default config");
         cfg.preferred_auth_method = preferred;
