@@ -13,12 +13,17 @@ use crate::tui;
 use crate::history_cell::new_info_block;
 use crate::history_cell::HistoryCell;
 use codex_core::agents;
+use codex_core::protocol::InputItem;
 use crate::parse_leading_tag; // used by ChatWidget via crate import
 #[derive(Clone, Debug)]
 struct TeamContext {
     name: String,
     prompt: Option<String>,
     members: Vec<String>,
+    mode: Option<String>,
+    next_idx: usize,
+    turns_taken: usize,
+    max_turns: Option<usize>,
 }
 use codex_core::ConversationManager;
 use codex_core::config::Config;
@@ -410,10 +415,21 @@ impl App<'_> {
                                             self.app_state = AppState::Chat { widget: new_widget };
                                             self.app_event_tx.send(AppEvent::RequestRedraw);
                                             // Activate team context for subsequent @member overrides.
+                                            // Extract simple termination.max_turns if present
+                                            let max_turns = team_def
+                                                .config
+                                                .termination
+                                                .get("max_turns")
+                                                .and_then(|v| v.as_integer())
+                                                .map(|i| i as usize);
                                             self.team_context = Some(TeamContext {
                                                 name: name.clone(),
                                                 prompt: team_def.prompt.clone(),
                                                 members: team_def.config.members.clone(),
+                                                mode: team_def.config.mode.clone(),
+                                                next_idx: 0,
+                                                turns_taken: 0,
+                                                max_turns,
                                             });
                                         }
                                         Err(e) => {
@@ -485,7 +501,44 @@ impl App<'_> {
                     }
                 }
                 AppEvent::CodexOp(op) => match &mut self.app_state {
-                    AppState::Chat { widget } => widget.submit_op(op),
+                    AppState::Chat { widget } => {
+                        // Intercept user input when a team context is active to select a member.
+                        if let Op::UserInput { items } = &op {
+                            if let Some(InputItem::Text { text }) = items.first() {
+                                // Skip if the user is explicitly tagging a target at start of line.
+                                if self.team_context.is_some() && !text.trim_start().starts_with('@') {
+                                    // Check termination
+                                    if let Some(tc) = &mut self.team_context {
+                                        if let Some(limit) = tc.max_turns {
+                                            if tc.turns_taken >= limit {
+                                                let msg = format!("Team '{}' reached max_turns={}", tc.name, limit);
+                                                self.pending_history_lines.extend(new_info_block(vec![msg]).display_lines());
+                                                self.app_event_tx.send(AppEvent::RequestRedraw);
+                                                continue;
+                                            }
+                                        }
+                                        // Round-robin selection for now.
+                                        if tc.members.is_empty() {
+                                            self.pending_history_lines.extend(new_info_block(vec!["Team has no members".to_string()]).display_lines());
+                                            self.app_event_tx.send(AppEvent::RequestRedraw);
+                                            continue;
+                                        }
+                                        let idx = tc.next_idx % tc.members.len();
+                                        let member = tc.members[idx].clone();
+                                        tc.next_idx = (tc.next_idx + 1) % tc.members.len();
+                                        tc.turns_taken += 1;
+                                        // Dispatch a switch to the selected member with the same input text.
+                                        self.app_event_tx.send(AppEvent::SwitchToAgent {
+                                            name: member,
+                                            initial_prompt: Some(text.clone()),
+                                        });
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                        widget.submit_op(op)
+                    }
                     AppState::Onboarding { .. } => {}
                 },
                 AppEvent::DiffResult(text) => {
