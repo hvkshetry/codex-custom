@@ -1,0 +1,47 @@
+name: Sync Upstream OpenAI Codex
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # Daily at 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/openai/codex.git || true
+          git fetch upstream main
+
+      - name: Merge upstream/main into main
+        run: |
+          set -e
+          git checkout main
+          BEFORE=$(git rev-parse HEAD)
+          if git merge --no-edit upstream/main; then
+            AFTER=$(git rev-parse HEAD)
+            if [ "$BEFORE" = "$AFTER" ]; then
+              echo "Already up-to-date."
+              exit 0
+            fi
+            git push origin main
+          else
+            echo "Merge conflict with upstream/main" >&2
+            git merge --abort || true
+            exit 1
+          fi
+
