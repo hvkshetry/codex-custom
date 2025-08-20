@@ -12,6 +12,8 @@ use strum_macros::IntoStaticStr;
 pub enum SlashCommand {
     // DO NOT ALPHA-SORT! Enum order is presentation order in the popup, so
     // more frequently used commands should be listed first.
+    Model,
+    Approvals,
     New,
     Init,
     Compact,
@@ -21,6 +23,7 @@ pub enum SlashCommand {
     Workflows,
     Mention,
     Status,
+    Mcp,
     Logout,
     Quit,
     #[cfg(debug_assertions)]
@@ -41,6 +44,9 @@ impl SlashCommand {
             SlashCommand::Workflows => "list project workflows in .codex/workflows",
             SlashCommand::Mention => "mention a file",
             SlashCommand::Status => "show current session configuration and token usage",
+            SlashCommand::Model => "choose what model and reasoning effort to use",
+            SlashCommand::Approvals => "choose what Codex can do without approval",
+            SlashCommand::Mcp => "list configured MCP tools",
             SlashCommand::Logout => "log out of Codex",
             #[cfg(debug_assertions)]
             SlashCommand::TestApproval => "test approval request",
