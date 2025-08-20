@@ -358,9 +358,10 @@ fn apply_agent_target(config: &mut Config, agent: &AgentDefinition) {
     // Tool toggles
     if let Some(v) = agent.config.include_apply_patch_tool { config.include_apply_patch_tool = v; }
     if let Some(v) = agent.config.include_plan_tool { config.include_plan_tool = v; }
-    // Agent prompt as base instructions override
+    // Agent prompt as user instructions (not base) to satisfy ChatGPT subscription constraints
     if let Some(prompt) = agent.prompt.as_ref() {
-        config.base_instructions = Some(prompt.clone());
+        config.user_instructions = Some(prompt.clone());
+        config.base_instructions = None;
     }
     // Per-agent MCP servers (already merged if inherit flag set).
     config.mcp_servers = agent.mcp_servers.clone();

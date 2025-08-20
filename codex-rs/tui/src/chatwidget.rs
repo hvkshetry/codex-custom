@@ -116,6 +116,21 @@ fn create_initial_user_message(text: String, image_paths: Vec<PathBuf>) -> Optio
 }
 
 impl ChatWidget<'_> {
+    pub(crate) fn show_status(&mut self, text: &str) {
+        self.bottom_pane.set_task_running(true);
+        self.bottom_pane.update_status_text(text.to_string());
+        self.mark_needs_redraw();
+    }
+
+    pub(crate) fn update_status(&mut self, text: &str) {
+        self.bottom_pane.update_status_text(text.to_string());
+        self.mark_needs_redraw();
+    }
+
+    pub(crate) fn hide_status(&mut self) {
+        self.bottom_pane.set_task_running(false);
+        self.mark_needs_redraw();
+    }
     #[inline]
     fn mark_needs_redraw(&mut self) {
         self.needs_redraw = true;
@@ -129,7 +144,10 @@ impl ChatWidget<'_> {
         self.bottom_pane
             .set_history_metadata(event.history_log_id, event.history_entry_count);
         self.session_id = Some(event.session_id);
-        self.add_to_history(&history_cell::new_session_info(&self.config, event, true));
+        let suppress_banner = self.initial_user_message.is_some();
+        if !suppress_banner {
+            self.add_to_history(&history_cell::new_session_info(&self.config, event, true));
+        }
         if let Some(user_message) = self.initial_user_message.take() {
             self.submit_user_message(user_message);
         }
@@ -677,6 +695,9 @@ impl ChatWidget<'_> {
             EventMsg::TurnDiff(TurnDiffEvent { unified_diff }) => self.on_turn_diff(unified_diff),
             EventMsg::BackgroundEvent(BackgroundEventEvent { message }) => {
                 self.on_background_event(message)
+            }
+            EventMsg::McpListToolsResponse(_) => {
+                // No-op in this build; /status path shows tools
             }
         }
         // Coalesce redraws: issue at most one after handling the event

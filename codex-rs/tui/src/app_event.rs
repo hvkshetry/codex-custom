@@ -75,4 +75,9 @@ pub(crate) enum AppEvent {
     RunWorkflow {
         name: String,
     },
+
+    // UI status control for long-running background (e.g., selector):
+    ShowStatus { text: String },
+    UpdateStatus { text: String },
+    HideStatus,
 }
