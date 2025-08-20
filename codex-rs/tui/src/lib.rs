@@ -11,6 +11,8 @@ use codex_core::config::ConfigToml;
 use codex_core::config::find_codex_home;
 use codex_core::config::load_config_as_toml_with_cli_overrides;
 use codex_core::protocol::AskForApproval;
+use codex_core::agents;
+use codex_core::agents::AgentDefinition;
 use codex_core::protocol::SandboxPolicy;
 use codex_login::AuthMode;
 use codex_login::CodexAuth;
@@ -135,23 +137,21 @@ pub async fn run_main(
     let mut config = {
         // Load configuration and support CLI overrides.
 
-        #[allow(clippy::print_stderr)]
         match Config::load_with_cli_overrides(cli_kv_overrides.clone(), overrides) {
             Ok(config) => config,
             Err(err) => {
-                eprintln!("Error loading configuration: {err}");
+                error!("Error loading configuration: {err}");
                 std::process::exit(1);
             }
         }
     };
 
     // we load config.toml here to determine project state.
-    #[allow(clippy::print_stderr)]
     let config_toml = {
         let codex_home = match find_codex_home() {
             Ok(codex_home) => codex_home,
             Err(err) => {
-                eprintln!("Error finding codex home: {err}");
+                error!("Error finding codex home: {err}");
                 std::process::exit(1);
             }
         };
@@ -159,7 +159,7 @@ pub async fn run_main(
         match load_config_as_toml_with_cli_overrides(&codex_home, cli_kv_overrides) {
             Ok(config_toml) => config_toml,
             Err(err) => {
-                eprintln!("Error loading config.toml: {err}");
+                error!("Error loading config.toml: {err}");
                 std::process::exit(1);
             }
         }
@@ -214,7 +214,6 @@ pub async fn run_main(
 
     let _ = tracing_subscriber::registry().with(file_layer).try_init();
 
-    #[allow(clippy::print_stderr)]
     #[cfg(not(debug_assertions))]
     if let Some(latest_version) = updates::get_upgrade_version(&config) {
         let current_version = env!("CARGO_PKG_VERSION");
@@ -244,6 +243,50 @@ pub async fn run_main(
         }
 
         eprintln!("");
+    }
+
+    // Smart-run: if initial prompt starts with "@name", route to an agent (teams soon).
+    let mut cli = cli; // take ownership and allow mutation
+    if let Some(p) = cli.prompt.clone() {
+        if let Some((tag, rest)) = parse_leading_tag(&p) {
+            if let Ok(Some(project_dir)) = agents::discover_project_codex_dir(Some(config.cwd.clone())) {
+                if let Ok(names) = agents::list_agents(&project_dir) {
+                    if names.iter().any(|n| n == &tag) {
+                        match agents::load_agent(&project_dir, &tag, &config_toml) {
+                            Ok(agent_def) => {
+                                apply_agent_target(&mut config, &agent_def);
+                                cli.prompt = rest;
+                            }
+                            Err(e) => {
+                                error!("Error loading agent '{tag}': {e}");
+                            }
+                        }
+                        // done routing
+                    } else if let Ok(team_def) = agents::load_team(&project_dir, &tag) {
+                        if let Some(first_member) = team_def.config.members.first() {
+                            match agents::load_agent(&project_dir, first_member, &config_toml) {
+                                Ok(mut agent_def) => {
+                                    // Combine team + agent prompts
+                                    if let Some(team_p) = team_def.prompt.as_ref() {
+                                        agent_def.prompt = Some(match agent_def.prompt.take() {
+                                            Some(ap) => format!("{team_p}\n\n{ap}"),
+                                            None => team_p.clone(),
+                                        });
+                                    }
+                                    apply_agent_target(&mut config, &agent_def);
+                                    cli.prompt = rest;
+                                }
+                                Err(e) => {
+                                    error!("Failed to load first member '{first_member}' of team '{tag}': {e}");
+                                }
+                            }
+                        } else {
+                            error!("Team '{tag}' has no members");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     run_ratatui_app(cli, config, should_show_trust_screen)
@@ -283,6 +326,44 @@ fn run_ratatui_app(
     session_log::log_session_end();
     // ignore error when collecting usage – report underlying error instead
     app_result.map(|_| usage)
+}
+
+fn parse_leading_tag(s: &str) -> Option<(String, Option<String>)> {
+    let trimmed = s.trim_start();
+    let mut chars = trimmed.chars();
+    if chars.next()? != '@' { return None; }
+    let mut name = String::new();
+    for c in chars.clone() {
+        if c.is_whitespace() { break; }
+        name.push(c);
+    }
+    if name.is_empty() { return None; }
+    let after_tag = &trimmed[1 + name.len()..].trim_start();
+    let rest = if after_tag.is_empty() { None } else { Some(after_tag.to_string()) };
+    Some((name, rest))
+}
+
+fn apply_agent_target(config: &mut Config, agent: &AgentDefinition) {
+    // Model override
+    if let Some(m) = agent.config.model.as_ref() {
+        config.model = m.clone();
+    }
+    // Provider override
+    if let Some(provider_id) = agent.config.model_provider.as_ref() {
+        if let Some(info) = config.model_providers.get(provider_id).cloned() {
+            config.model_provider_id = provider_id.clone();
+            config.model_provider = info;
+        }
+    }
+    // Tool toggles
+    if let Some(v) = agent.config.include_apply_patch_tool { config.include_apply_patch_tool = v; }
+    if let Some(v) = agent.config.include_plan_tool { config.include_plan_tool = v; }
+    // Agent prompt as base instructions override
+    if let Some(prompt) = agent.prompt.as_ref() {
+        config.base_instructions = Some(prompt.clone());
+    }
+    // Per-agent MCP servers (already merged if inherit flag set).
+    config.mcp_servers = agent.mcp_servers.clone();
 }
 
 #[expect(

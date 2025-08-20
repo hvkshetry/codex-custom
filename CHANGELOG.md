@@ -2,6 +2,20 @@
 
 You can install any of these versions: `npm install -g codex@version`
 
+## Custom (codex-custom)
+
+### Added
+
+- Introduce `codex-custom`, a custom build that:
+  - Discovers and deep‑merges project `.codex/config.toml` over global `~/.codex/config.toml`.
+  - Supports project‑scoped MCP servers loaded at startup (no agents required).
+  - Adds optional TUI slash commands for agentic workflows: `/agents`, `/teams`, `/workflows`, and an extended `/init` that scaffolds `.codex/`.
+  - Keeps the official `codex` binary unchanged; `codex-custom` is separate.
+- Documentation for the custom build:
+  - `docs/README-CUSTOM.md` – overview, motivation, custom features, config precedence, examples.
+  - `docs/SETUP.md` – build, installation, configuration, and troubleshooting.
+  - `docs/LICENSE-CUSTOM.md` – license notice and attribution for the customizations.
+
 ## `0.1.2505172129`
 
 ### 🪲 Bug Fixes

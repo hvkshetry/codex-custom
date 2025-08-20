@@ -187,8 +187,26 @@ impl Config {
         // `Config` instance.
         let codex_home = find_codex_home()?;
 
-        // Step 1: parse `config.toml` into a generic JSON value.
+        // Step 1: parse global `config.toml` into a generic TOML value.
         let mut root_value = load_config_as_toml(&codex_home)?;
+
+        // Step 1b: discover project-scoped .codex/config.toml nearest to the
+        // resolved working directory (derived from overrides or current_dir),
+        // and deep-merge it on top of the global config so project values win.
+        let prelim_cwd = resolve_preliminary_cwd(overrides.cwd.clone())?;
+        if let Some(project_codex_dir) = find_project_codex_dir(&prelim_cwd) {
+            let project_cfg_path = project_codex_dir.join(CONFIG_TOML_FILE);
+            if let Ok(contents) = std::fs::read_to_string(&project_cfg_path) {
+                if let Ok(project_value) = toml::from_str::<TomlValue>(&contents) {
+                    merge_toml_in_place(&mut root_value, &project_value);
+                } else {
+                    tracing::error!(
+                        "Failed to parse project config: {}",
+                        project_cfg_path.display()
+                    );
+                }
+            }
+        }
 
         // Step 2: apply the `-c` overrides.
         for (path, value) in cli_overrides.into_iter() {
@@ -203,7 +221,15 @@ impl Config {
         })?;
 
         // Step 4: merge with the strongly-typed overrides.
-        Self::load_from_base_config_with_overrides(cfg, overrides, codex_home)
+        // Pass the discovered project .codex dir (if any) so we can prefer
+        // its AGENTS.md for user instructions.
+        let project_codex_dir = find_project_codex_dir(&prelim_cwd);
+        Self::load_from_base_config_with_overrides(
+            cfg,
+            overrides,
+            codex_home,
+            project_codex_dir,
+        )
     }
 }
 
@@ -506,8 +532,15 @@ impl Config {
         cfg: ConfigToml,
         overrides: ConfigOverrides,
         codex_home: PathBuf,
+        project_codex_dir: Option<PathBuf>,
     ) -> std::io::Result<Self> {
-        let user_instructions = Self::load_instructions(Some(&codex_home));
+        // Prefer project-scoped AGENTS.md when available, otherwise fall back
+        // to global ~/.codex/AGENTS.md.
+        let user_instructions = if let Some(ref dir) = project_codex_dir {
+            Self::load_instructions(Some(dir.as_path())).or_else(|| Self::load_instructions(Some(&codex_home)))
+        } else {
+            Self::load_instructions(Some(&codex_home))
+        };
 
         // Destructure ConfigOverrides fully to ensure all overrides are applied.
         let ConfigOverrides {
@@ -746,6 +779,52 @@ impl Config {
             ))
         } else {
             Ok(Some(s))
+        }
+    }
+
+    // removed unused helper `resolve_cwd_for_discovery`
+}
+
+/// Resolve a preliminary cwd for configuration discovery.
+pub(crate) fn resolve_preliminary_cwd(cwd_override: Option<PathBuf>) -> std::io::Result<PathBuf> {
+    use std::env;
+    match cwd_override {
+        None => env::current_dir(),
+        Some(p) if p.is_absolute() => Ok(p),
+        Some(p) => Ok(env::current_dir()?.join(p)),
+    }
+}
+
+/// Walk up from `start` to find a directory that contains `.codex/config.toml`.
+pub(crate) fn find_project_codex_dir(start: &Path) -> Option<PathBuf> {
+    let mut current = start;
+    loop {
+        let candidate = current.join(".codex").join(CONFIG_TOML_FILE);
+        if candidate.exists() {
+            return current.join(".codex").canonicalize().ok();
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => return None,
+        }
+    }
+}
+
+/// Deep-merge `src` into `dst`, letting `src` values override `dst`.
+fn merge_toml_in_place(dst: &mut TomlValue, src: &TomlValue) {
+    match (dst, src) {
+        (TomlValue::Table(dst_tbl), TomlValue::Table(src_tbl)) => {
+            for (k, v) in src_tbl.iter() {
+                match dst_tbl.get_mut(k) {
+                    Some(dst_child) => merge_toml_in_place(dst_child, v),
+                    None => {
+                        dst_tbl.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        (dst_any, src_any) => {
+            *dst_any = src_any.clone();
         }
     }
 }
@@ -1016,6 +1095,7 @@ disable_response_storage = true
             fixture.cfg.clone(),
             o3_profile_overrides,
             fixture.codex_home(),
+            None,
         )?;
         assert_eq!(
             Config {
@@ -1070,6 +1150,7 @@ disable_response_storage = true
             fixture.cfg.clone(),
             gpt3_profile_overrides,
             fixture.codex_home(),
+            None,
         )?;
         let expected_gpt3_profile_config = Config {
             model: "gpt-3.5-turbo".to_string(),
@@ -1119,6 +1200,7 @@ disable_response_storage = true
             fixture.cfg.clone(),
             default_profile_overrides,
             fixture.codex_home(),
+            None,
         )?;
 
         assert_eq!(expected_gpt3_profile_config, default_profile_config);
@@ -1138,6 +1220,7 @@ disable_response_storage = true
             fixture.cfg.clone(),
             zdr_profile_overrides,
             fixture.codex_home(),
+            None,
         )?;
         let expected_zdr_profile_config = Config {
             model: "o3".to_string(),

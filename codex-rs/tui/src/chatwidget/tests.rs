@@ -39,6 +39,7 @@ fn test_config() -> Config {
         ConfigToml::default(),
         ConfigOverrides::default(),
         std::env::temp_dir(),
+        None,
     )
     .expect("config")
 }

@@ -15,6 +15,7 @@ pub fn load_default_config_for_test(codex_home: &TempDir) -> Config {
         ConfigToml::default(),
         ConfigOverrides::default(),
         codex_home.path().to_path_buf(),
+        None,
     )
     .expect("defaults for test should always succeed")
 }

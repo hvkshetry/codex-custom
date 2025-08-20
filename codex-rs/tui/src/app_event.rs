@@ -6,9 +6,6 @@ use std::time::Duration;
 
 use crate::app::ChatWidgetArgs;
 use crate::slash_command::SlashCommand;
-use codex_core::protocol::AskForApproval;
-use codex_core::protocol::SandboxPolicy;
-use codex_core::protocol_config_types::ReasoningEffort;
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
@@ -67,15 +64,15 @@ pub(crate) enum AppEvent {
     OnboardingAuthComplete(Result<(), String>),
     OnboardingComplete(ChatWidgetArgs),
 
-    /// Update the current reasoning effort in the running app and widget.
-    UpdateReasoningEffort(ReasoningEffort),
+    /// Request to switch to a new agent session by name, optionally with
+    /// an initial prompt to submit after the session is configured.
+    SwitchToAgent {
+        name: String,
+        initial_prompt: Option<String>,
+    },
 
-    /// Update the current model slug in the running app and widget.
-    UpdateModel(String),
-
-    /// Update the current approval policy in the running app and widget.
-    UpdateAskForApprovalPolicy(AskForApproval),
-
-    /// Update the current sandbox policy in the running app and widget.
-    UpdateSandboxPolicy(SandboxPolicy),
+    /// Run a workflow defined in .codex/workflows/<name>.toml
+    RunWorkflow {
+        name: String,
+    },
 }
