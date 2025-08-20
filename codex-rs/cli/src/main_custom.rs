@@ -12,6 +12,7 @@ use codex_cli::login::run_login_with_api_key;
 use codex_cli::login::run_login_with_chatgpt;
 use codex_cli::login::run_logout;
 use codex_cli::proto;
+use codex_cli::workflow;
 use codex_common::CliConfigOverrides;
 use codex_exec::Cli as ExecCli;
 use codex_tui::Cli as TuiCli;
@@ -19,19 +20,15 @@ use std::path::PathBuf;
 
 use crate::proto::ProtoCli;
 
-/// Codex CLI
+/// Codex CLI (custom alias)
 ///
 /// If no subcommand is specified, options will be forwarded to the interactive CLI.
 #[derive(Debug, Parser)]
 #[clap(
     author,
     version,
-    // If a sub‑command is given, ignore requirements of the default args.
     subcommand_negates_reqs = true,
-    // The executable is sometimes invoked via a platform‑specific name like
-    // `codex-x86_64-unknown-linux-musl`, but the help output should always use
-    // the generic `codex` command name that users run.
-    bin_name = "codex"
+    bin_name = "codex-custom"
 )]
 struct MultitoolCli {
     #[clap(flatten)]
@@ -76,6 +73,9 @@ enum Subcommand {
     /// Internal: generate TypeScript protocol bindings.
     #[clap(hide = true)]
     GenerateTs(GenerateTsCommand),
+
+    /// Run a project-defined workflow non-interactively.
+    Workflow(workflow::WorkflowCli),
 }
 
 #[derive(Debug, Parser)]
@@ -212,6 +212,9 @@ async fn cli_main(codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()
         Some(Subcommand::GenerateTs(gen_cli)) => {
             codex_protocol_ts::generate_ts(&gen_cli.out_dir, gen_cli.prettier.as_deref())?;
         }
+        Some(Subcommand::Workflow(cli)) => {
+            workflow::run_main(cli, codex_linux_sandbox_exe).await?;
+        }
     }
 
     Ok(())
@@ -230,6 +233,7 @@ fn prepend_config_flags(
 
 fn print_completion(cmd: CompletionCommand) {
     let mut app = MultitoolCli::command();
-    let name = "codex";
+    let name = "codex-custom";
     generate(cmd.shell, &mut app, name, &mut std::io::stdout());
 }
+

@@ -137,23 +137,21 @@ pub async fn run_main(
     let mut config = {
         // Load configuration and support CLI overrides.
 
-        #[allow(clippy::print_stderr)]
         match Config::load_with_cli_overrides(cli_kv_overrides.clone(), overrides) {
             Ok(config) => config,
             Err(err) => {
-                eprintln!("Error loading configuration: {err}");
+                error!("Error loading configuration: {err}");
                 std::process::exit(1);
             }
         }
     };
 
     // we load config.toml here to determine project state.
-    #[allow(clippy::print_stderr)]
     let config_toml = {
         let codex_home = match find_codex_home() {
             Ok(codex_home) => codex_home,
             Err(err) => {
-                eprintln!("Error finding codex home: {err}");
+                error!("Error finding codex home: {err}");
                 std::process::exit(1);
             }
         };
@@ -161,7 +159,7 @@ pub async fn run_main(
         match load_config_as_toml_with_cli_overrides(&codex_home, cli_kv_overrides) {
             Ok(config_toml) => config_toml,
             Err(err) => {
-                eprintln!("Error loading config.toml: {err}");
+                error!("Error loading config.toml: {err}");
                 std::process::exit(1);
             }
         }
@@ -216,7 +214,6 @@ pub async fn run_main(
 
     let _ = tracing_subscriber::registry().with(file_layer).try_init();
 
-    #[allow(clippy::print_stderr)]
     #[cfg(not(debug_assertions))]
     if let Some(latest_version) = updates::get_upgrade_version(&config) {
         let current_version = env!("CARGO_PKG_VERSION");
@@ -261,8 +258,7 @@ pub async fn run_main(
                                 cli.prompt = rest;
                             }
                             Err(e) => {
-                                #[allow(clippy::print_stderr)]
-                                eprintln!("Error loading agent '{}': {e}", tag);
+                                error!("Error loading agent '{tag}': {e}");
                             }
                         }
                         // done routing
@@ -273,7 +269,7 @@ pub async fn run_main(
                                     // Combine team + agent prompts
                                     if let Some(team_p) = team_def.prompt.as_ref() {
                                         agent_def.prompt = Some(match agent_def.prompt.take() {
-                                            Some(ap) => format!("{}\n\n{}", team_p, ap),
+                                            Some(ap) => format!("{team_p}\n\n{ap}"),
                                             None => team_p.clone(),
                                         });
                                     }
@@ -281,13 +277,11 @@ pub async fn run_main(
                                     cli.prompt = rest;
                                 }
                                 Err(e) => {
-                                    #[allow(clippy::print_stderr)]
-                                    eprintln!("Failed to load first member '{}' of team '{}': {e}", first_member, tag);
+                                    error!("Failed to load first member '{first_member}' of team '{tag}': {e}");
                                 }
                             }
                         } else {
-                            #[allow(clippy::print_stderr)]
-                            eprintln!("Team '{}' has no members", tag);
+                            error!("Team '{tag}' has no members");
                         }
                     }
                 }

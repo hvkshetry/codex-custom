@@ -15,10 +15,7 @@ use crate::history_cell::HistoryCell;
 use codex_core::agents;
 use codex_core::protocol::InputItem;
 use codex_core::NewConversation;
-use codex_core::workflows;
 // ConversationManager already imported below; avoid duplicate import
-use codex_core::config::Config as CoreConfig;
-use crate::parse_leading_tag; // used by ChatWidget via crate import
 #[derive(Clone, Debug)]
 struct TeamContext {
     name: String,
@@ -45,7 +42,6 @@ struct WorkflowStepRuntime {
     kind: String, // agent|team
     id: String,
     prompt: Option<String>,
-    max_turns: Option<usize>,
 }
 use codex_core::ConversationManager;
 use codex_core::config::Config;
@@ -446,7 +442,6 @@ impl App<'_> {
                                             kind: match s.kind { codex_core::workflows::StepKind::Agent => "agent".to_string(), codex_core::workflows::StepKind::Team => "team".to_string() },
                                             id: s.id,
                                             prompt: s.prompt,
-                                            max_turns: s.max_turns,
                                         })
                                         .collect();
                                     self.workflow_context = Some(WorkflowContext { name: wf.name, steps, index: 0 });
@@ -454,7 +449,7 @@ impl App<'_> {
                                 }
                             }
                             Err(e) => {
-                                lines.push(format!("Failed to load workflow '{}': {e}", name));
+                                lines.push(format!("Failed to load workflow '{name}': {e}"));
                                 self.pending_history_lines.extend(new_info_block(lines).display_lines());
                                 self.app_event_tx.send(AppEvent::RequestRedraw);
                             }
@@ -504,7 +499,7 @@ impl App<'_> {
                                             if let Some(v) = agent_def.config.include_plan_tool { new_cfg.include_plan_tool = v; }
                                             // Combine team prompt + agent prompt if present.
                                             let combined_prompt = match (team_def.prompt.as_ref(), agent_def.prompt.as_ref()) {
-                                                (Some(t), Some(a)) => Some(format!("{}\n\n{}", t, a)),
+                                                (Some(t), Some(a)) => Some(format!("{t}\n\n{a}")),
                                                 (Some(t), None) => Some(t.clone()),
                                                 (None, Some(a)) => Some(a.clone()),
                                                 (None, None) => None,
@@ -537,14 +532,12 @@ impl App<'_> {
                                                     .get("model")
                                                     .and_then(|v| v.as_str())
                                                     .map(|s| s.to_string());
-                                                let pf = team_def
+                                                let p = team_def
                                                     .config
                                                     .selector
                                                     .get("prompt_file")
                                                     .and_then(|v| v.as_str())
-                                                    .map(|s| team_def.file.parent().unwrap().join(s));
-                                                let p = pf
-                                                    .as_ref()
+                                                    .and_then(|s| team_def.file.parent().map(|d| d.join(s)))
                                                     .and_then(|path| std::fs::read_to_string(path).ok());
                                                 let ars = team_def
                                                     .config
@@ -568,13 +561,13 @@ impl App<'_> {
                                             });
                                         }
                                         Err(e) => {
-                                            lines.push(format!("Failed to load first member '{}' of team '{}': {e}", first_member, name));
+                                            lines.push(format!("Failed to load first member '{first_member}' of team '{name}': {e}"));
                                             self.pending_history_lines.extend(new_info_block(lines).display_lines());
                                         }
                                     }
                                     continue;
                                 } else {
-                                    lines.push(format!("Team '{}' has no members", name));
+                                    lines.push(format!("Team '{name}' has no members"));
                                     self.pending_history_lines.extend(new_info_block(lines).display_lines());
                                     continue;
                                 }
@@ -596,7 +589,7 @@ impl App<'_> {
                                     // If we are in an active team context, combine team prompt with agent prompt.
                                     if let Some(tc) = &self.team_context {
                                         let combined = match (tc.prompt.as_ref(), agent_def.prompt.as_ref()) {
-                                            (Some(t), Some(a)) => Some(format!("{}\n\n{}", t, a)),
+                                            (Some(t), Some(a)) => Some(format!("{t}\n\n{a}")),
                                             (Some(t), None) => Some(t.clone()),
                                             (None, Some(a)) => Some(a.clone()),
                                             (None, None) => None,
@@ -620,7 +613,7 @@ impl App<'_> {
                                     self.app_event_tx.send(AppEvent::RequestRedraw);
                                 }
                                 Err(e) => {
-                                    lines.push(format!("Unknown agent or team '@{}' (load error: {e})", name));
+                                    lines.push(format!("Unknown agent or team '@{name}' (load error: {e})"));
                                     self.pending_history_lines.extend(new_info_block(lines).display_lines());
                                 }
                             }
@@ -660,7 +653,13 @@ impl App<'_> {
                                                 self.app_event_tx.send(AppEvent::RequestRedraw);
                                                 continue;
                                             }
-                                            let selector_model = tc.selector_model.clone().unwrap();
+                                            let Some(selector_model) = tc.selector_model.clone() else {
+                                                self
+                                                    .pending_history_lines
+                                                    .extend(new_info_block(vec!["Selector model not configured for team".to_string()]).display_lines());
+                                                self.app_event_tx.send(AppEvent::RequestRedraw);
+                                                continue;
+                                            };
                                             let selector_prompt = tc.selector_prompt.clone();
                                             let team_name = tc.name.clone();
                                             let candidates = tc.members.clone();
@@ -707,7 +706,11 @@ impl App<'_> {
                                                 continue;
                                             }
                                             let idx = tc.next_idx % tc.members.len();
-                                            let member = tc.members[idx].clone();
+                                            let member = tc
+                                                .members
+                                                .get(idx)
+                                                .cloned()
+                                                .unwrap_or_else(|| tc.members[0].clone());
                                             tc.next_idx = (tc.next_idx + 1) % tc.members.len();
                                             tc.turns_taken += 1;
                                             self.app_event_tx.send(AppEvent::SwitchToAgent { name: member, initial_prompt: Some(text.clone()) });
@@ -741,11 +744,93 @@ impl App<'_> {
                         self.app_event_tx.send(AppEvent::RequestRedraw);
                     }
                     SlashCommand::Init => {
-                        // Guard: do not run if a task is active.
-                        if let AppState::Chat { widget } = &mut self.app_state {
-                            const INIT_PROMPT: &str = include_str!("../prompt_for_init_command.md");
-                            widget.submit_text_message(INIT_PROMPT.to_string());
+                        // Initialize project-scoped .codex/ scaffolding if missing; otherwise advise discovery cmds.
+                        let cwd = self.config.cwd.clone();
+                        let project_dir = cwd.join(".codex");
+                        let mut lines: Vec<String> = Vec::new();
+                        if project_dir.exists() {
+                            lines.push("Project .codex/ already exists; leaving as-is.".to_string());
+                            lines.push("Try: /agents, /teams, /workflows to inspect.".to_string());
+                        } else {
+                            let mut created: Vec<String> = Vec::new();
+                            let _ = std::fs::create_dir_all(project_dir.join("agents").join("dev"));
+                            let _ = std::fs::create_dir_all(project_dir.join("teams"));
+                            let _ = std::fs::create_dir_all(project_dir.join("workflows"));
+
+                            // .codex/config.toml
+                            let cfg = format!(
+                                "# Project-scoped Codex config\nmodel = \"{}\"\n",
+                                self.config.model
+                            );
+                            if std::fs::write(project_dir.join("config.toml"), cfg).is_ok() {
+                                created.push(".codex/config.toml".to_string());
+                            }
+
+                            // .codex/AGENTS.md (project prompt)
+                            let proj_agents_md = "You are Codex for this project. Be concise, direct, and safe.";
+                            if std::fs::write(project_dir.join("AGENTS.md"), proj_agents_md).is_ok() {
+                                created.push(".codex/AGENTS.md".to_string());
+                            }
+
+                            // Sample agent: dev
+                            let agent_cfg = format!(
+                                "name = \"dev\"\nrole = \"General developer\"\nmodel = \"{}\"\ninclude_plan_tool = true\n",
+                                self.config.model
+                            );
+                            let agent_dir = project_dir.join("agents").join("dev");
+                            if std::fs::write(agent_dir.join("config.toml"), agent_cfg).is_ok() {
+                                created.push(".codex/agents/dev/config.toml".to_string());
+                            }
+                            let agent_prompt = "You are the Dev agent. Be practical and terse.";
+                            if std::fs::write(agent_dir.join("AGENTS.md"), agent_prompt).is_ok() {
+                                created.push(".codex/agents/dev/AGENTS.md".to_string());
+                            }
+
+                            // Sample team with selector mode
+                            let team_toml = format!(
+                                "mode = \"selector\"\n\n[selector]\nmodel = \"{model}\"\nallow_repeated_speaker = false\n\n# Members by agent directory name\nmembers = [\"dev\"]\n",
+                                model = self.config.model
+                            );
+                            if std::fs::write(project_dir.join("teams").join("dev-team.toml"), team_toml).is_ok() {
+                                created.push(".codex/teams/dev-team.toml".to_string());
+                            }
+                            let team_md = "Team prompt: collaborative developer team focusing on execution.";
+                            if std::fs::write(project_dir.join("teams").join("TEAM.md"), team_md).is_ok() {
+                                created.push(".codex/teams/TEAM.md".to_string());
+                            }
+
+                            // Sample workflow
+                            let wf = r#"name = "sample"
+description = "Sample sequential workflow"
+steps = ["plan", "implement"]
+
+[step.plan]
+type = "team"
+id = "dev-team"
+prompt = "Draft a short plan."
+max_turns = 1
+
+[step.implement]
+type = "agent"
+id = "dev"
+prompt = "Implement the plan with concise steps."
+max_turns = 1
+"#;
+                            if std::fs::write(project_dir.join("workflows").join("sample.toml"), wf).is_ok() {
+                                created.push(".codex/workflows/sample.toml".to_string());
+                            }
+
+                            if created.is_empty() {
+                                lines.push("Failed to create project .codex scaffolding.".to_string());
+                            } else {
+                                lines.push("Initialized project .codex/ with sample config:".to_string());
+                                for c in created { lines.push(format!("- {c}")); }
+                                lines.push("Try: @agent dev <task>, @team dev-team <task>, or @workflow sample".to_string());
+                            }
                         }
+                        self.app_event_tx
+                            .send(AppEvent::InsertHistory(new_info_block(lines).display_lines()));
+                        self.app_event_tx.send(AppEvent::RequestRedraw);
                     }
                     SlashCommand::Compact => {
                         if let AppState::Chat { widget } = &mut self.app_state {
@@ -795,7 +880,7 @@ impl App<'_> {
                                 Ok(Some(dir)) => match codex_core::agents::list_agents(&dir) {
                                     Ok(names) if !names.is_empty() => {
                                         lines.push("Agents:".to_string());
-                                        for n in names { lines.push(format!("- {}", n)); }
+                                        for n in names { lines.push(format!("- {n}")); }
                                     }
                                     Ok(_) => lines.push("No agents found in .codex/agents".to_string()),
                                     Err(e) => lines.push(format!("Error listing agents: {e}")),
@@ -816,7 +901,7 @@ impl App<'_> {
                                 Ok(Some(dir)) => match codex_core::workflows::discover_workflows(&dir) {
                                     Ok(names) if !names.is_empty() => {
                                         lines.push("Workflows:".to_string());
-                                        for n in names { lines.push(format!("- {}", n)); }
+                                        for n in names { lines.push(format!("- {n}")); }
                                     }
                                     Ok(_) => lines.push("No workflows found in .codex/workflows".to_string()),
                                     Err(e) => lines.push(format!("Error listing workflows: {e}")),
@@ -837,7 +922,7 @@ impl App<'_> {
                                 Ok(Some(dir)) => match codex_core::agents::list_teams(&dir) {
                                     Ok(names) if !names.is_empty() => {
                                         lines.push("Teams:".to_string());
-                                        for n in names { lines.push(format!("- {}", n)); }
+                                        for n in names { lines.push(format!("- {n}")); }
                                     }
                                     Ok(_) => lines.push("No teams found in .codex/teams".to_string()),
                                     Err(e) => lines.push(format!("Error listing teams: {e}")),

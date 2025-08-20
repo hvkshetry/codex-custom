@@ -32,7 +32,7 @@ impl SlashCommand {
     pub fn description(self) -> &'static str {
         match self {
             SlashCommand::New => "start a new chat during a conversation",
-            SlashCommand::Init => "create an AGENTS.md file with instructions for Codex",
+            SlashCommand::Init => "initialize project .codex config, agents, teams, workflows",
             SlashCommand::Compact => "summarize conversation to prevent hitting the context limit",
             SlashCommand::Quit => "exit Codex",
             SlashCommand::Diff => "show git diff (including untracked files)",

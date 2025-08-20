@@ -190,11 +190,25 @@ pub fn load_team(project_codex_dir: &Path, name: &str) -> std::io::Result<TeamDe
     })?;
 
     // Load team prompt (TEAM.md next to file by default).
-    let prompt_path = cfg
-        .prompt_file
-        .clone()
-        .map(|p| if p.is_relative() { file.parent().unwrap().join(p) } else { p })
-        .unwrap_or_else(|| file.with_file_name("TEAM.md"));
+    let prompt_path = {
+        let default_path = file.with_file_name("TEAM.md");
+        match cfg.prompt_file.clone() {
+            None => default_path,
+            Some(p) if !p.is_relative() => p,
+            Some(p) => {
+                let parent = file.parent().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!(
+                            "team config path has no parent directory: {}",
+                            file.display()
+                        ),
+                    )
+                })?;
+                parent.join(p)
+            }
+        }
+    };
     let prompt = fs::read_to_string(&prompt_path).ok().and_then(|s| {
         let s = s.trim();
         if s.is_empty() { None } else { Some(s.to_string()) }
@@ -202,4 +216,3 @@ pub fn load_team(project_codex_dir: &Path, name: &str) -> std::io::Result<TeamDe
 
     Ok(TeamDefinition { file, config: cfg, prompt })
 }
-

@@ -2,6 +2,7 @@ pub mod debug_sandbox;
 mod exit_status;
 pub mod login;
 pub mod proto;
+pub mod workflow;
 
 use clap::Parser;
 use codex_common::CliConfigOverrides;

@@ -776,12 +776,7 @@ impl Config {
         }
     }
 
-    /// Resolve a preliminary cwd for config discovery, before we build the
-    /// full Config. If an override is provided, prefer it; otherwise use the
-    /// process current_dir. Relative values are resolved against current_dir.
-    fn resolve_cwd_for_discovery(cwd_override: Option<PathBuf>) -> std::io::Result<PathBuf> {
-        resolve_preliminary_cwd(cwd_override)
-    }
+    // removed unused helper `resolve_cwd_for_discovery`
 }
 
 /// Resolve a preliminary cwd for configuration discovery.
@@ -811,7 +806,6 @@ pub(crate) fn find_project_codex_dir(start: &Path) -> Option<PathBuf> {
 
 /// Deep-merge `src` into `dst`, letting `src` values override `dst`.
 fn merge_toml_in_place(dst: &mut TomlValue, src: &TomlValue) {
-    use toml::value::Table;
     match (dst, src) {
         (TomlValue::Table(dst_tbl), TomlValue::Table(src_tbl)) => {
             for (k, v) in src_tbl.iter() {
