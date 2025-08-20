@@ -698,3 +698,9 @@ Have you discovered a vulnerability or have concerns about model output? Please 
 ## License
 
 This repository is licensed under the [Apache-2.0 License](LICENSE).
+# OpenAI Codex CLI
+
+Note: This repository includes a custom build and documentation for an extended “codex-custom” CLI with project‑level MCP configuration and agentic workflows beyond coding. See:
+
+- docs/README-CUSTOM.md – overview, motivation, and the list of customizations
+- docs/SETUP.md – build, installation, and configuration steps for codex-custom
