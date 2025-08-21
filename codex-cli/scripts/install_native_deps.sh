@@ -20,7 +20,8 @@ CODEX_CLI_ROOT=""
 # Until we start publishing stable GitHub releases, we have to grab the binaries
 # from the GitHub Action that created them. Update the URL below to point to the
 # appropriate workflow run:
-WORKFLOW_URL="https://github.com/openai/codex/actions/runs/16840150768" # rust-v0.20.0-alpha.2
+WORKFLOW_URL="" # Provide with --workflow-url to download artifacts from a specific run
+REPO_SLUG="hvkshetry/codex-custom"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -28,6 +29,12 @@ while [[ $# -gt 0 ]]; do
       shift || { echo "--workflow-url requires an argument"; exit 1; }
       if [ -n "$1" ]; then
         WORKFLOW_URL="$1"
+      fi
+      ;;
+    --repo)
+      shift || { echo "--repo requires an argument (owner/repo)"; exit 1; }
+      if [ -n "$1" ]; then
+        REPO_SLUG="$1"
       fi
       ;;
     *)
@@ -70,7 +77,11 @@ ARTIFACTS_DIR="$(mktemp -d)"
 trap 'rm -rf "$ARTIFACTS_DIR"' EXIT
 
 # NB: The GitHub CLI `gh` must be installed and authenticated.
-gh run download --dir "$ARTIFACTS_DIR" --repo openai/codex "$WORKFLOW_ID"
+if [[ -z "$WORKFLOW_ID" ]]; then
+  echo "Error: --workflow-url is required to download artifacts (no default run)." >&2
+  exit 1
+fi
+gh run download --dir "$ARTIFACTS_DIR" --repo "$REPO_SLUG" "$WORKFLOW_ID"
 
 # x64 Linux
 zstd -d "$ARTIFACTS_DIR/x86_64-unknown-linux-musl/codex-x86_64-unknown-linux-musl.zst" \

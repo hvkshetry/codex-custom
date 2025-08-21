@@ -1,6 +1,7 @@
-<h1 align="center">OpenAI Codex CLI</h1>
+<h1 align="center">OpenAI Codex CLI (Community Fork)</h1>
 
 <p align="center"><code>npm i -g @openai/codex</code><br />or <code>brew install codex</code></p>
+<p align="center"><em>This repository is a community-maintained fork. Installation commands above reference the upstream package; see <a href="#about-this-fork">About this fork</a> for notes on using this repository.</em></p>
 
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.</br>If you are looking for the <em>cloud-based agent</em> from OpenAI, <strong>Codex Web</strong>, see <a href="https://chatgpt.com/codex">chatgpt.com/codex</a>.</p>
 
@@ -64,6 +65,14 @@
 
 ---
 
+## About this fork
+
+This repository is a public fork of the OpenAI Codex CLI. It keeps the upstream license and NOTICE intact. If you wish to build or release from this fork:
+
+- The repository URL has been set to `https://github.com/hvkshetry/codex-custom`.
+- Use `codex-cli/scripts/stage_release.sh --repo hvkshetry/codex-custom --workflow-url <run-url>` to stage npm artifacts against your own releases.
+- Alternatively, build native binaries from `codex-rs/` and place them under `codex-cli/bin/` following the platform naming used by `bin/codex.js`.
+
 ## Quickstart
 
 ### Installing and running Codex CLI
@@ -81,7 +90,7 @@ codex
 ```
 
 <details>
-<summary>You can also go to the <a href="https://github.com/openai/codex/releases/latest">latest GitHub Release</a> and download the appropriate binary for your platform.</summary>
+<summary>You can also go to the <a href="https://github.com/hvkshetry/codex-custom/releases/latest">latest GitHub Release</a> and download the appropriate binary for your platform.</summary>
 
 Each GitHub Release contains many executables, but in practice, you likely want one of these:
 

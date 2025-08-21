@@ -52,7 +52,7 @@ struct ReleaseInfo {
 }
 
 const VERSION_FILENAME: &str = "version.json";
-const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
+const DEFAULT_LATEST_RELEASE_URL: &str = "https://api.github.com/repos/hvkshetry/codex-custom/releases/latest";
 
 fn version_filepath(config: &Config) -> PathBuf {
     config.codex_home.join(VERSION_FILENAME)
@@ -64,10 +64,13 @@ fn read_version_info(version_file: &Path) -> anyhow::Result<VersionInfo> {
 }
 
 async fn check_for_update(version_file: &Path) -> anyhow::Result<()> {
+    let latest_release_url = std::env::var("CODEX_LATEST_RELEASE_URL")
+        .unwrap_or_else(|_| DEFAULT_LATEST_RELEASE_URL.to_string());
+
     let ReleaseInfo {
         tag_name: latest_tag_name,
     } = reqwest::Client::new()
-        .get(LATEST_RELEASE_URL)
+        .get(&latest_release_url)
         .header("User-Agent", get_codex_user_agent(None))
         .send()
         .await?

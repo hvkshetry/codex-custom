@@ -35,7 +35,7 @@ fi
 
 # Ensure the current local commit on 'main' is present on 'origin/main'.
 # This guarantees we only create releases from commits that are already on
-# the canonical repository (https://github.com/openai/codex).
+# the canonical repository (https://github.com/hvkshetry/codex-custom).
 if ! git fetch --quiet origin main; then
   echo "ERROR: Failed to fetch 'origin/main'. Ensure the 'origin' remote is configured and reachable." >&2
   exit 1

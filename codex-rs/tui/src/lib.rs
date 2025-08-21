@@ -236,7 +236,7 @@ pub async fn run_main(
         } else {
             eprintln!(
                 "See {} for the latest releases and installation options.",
-                "https://github.com/openai/codex/releases/latest"
+                &std::env::var("CODEX_RELEASES_PAGE_URL").unwrap_or_else(|_| "https://github.com/hvkshetry/codex-custom/releases/latest".to_string())
                     .cyan()
                     .on_black()
             );

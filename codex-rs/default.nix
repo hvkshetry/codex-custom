@@ -19,7 +19,7 @@ rec {
     meta = with pkgs.lib; {
       description = "OpenAI Codex command‑line interface rust implementation";
       license = licenses.asl20;
-      homepage = "https://github.com/openai/codex";
+      homepage = "https://github.com/hvkshetry/codex-custom";
     };
   };
   devShell = pkgs.mkShell {
