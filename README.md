@@ -67,11 +67,32 @@
 
 ## About this fork
 
-This repository is a public fork of the OpenAI Codex CLI. It keeps the upstream license and NOTICE intact. If you wish to build or release from this fork:
+This repository is a public fork of the OpenAI Codex CLI. It keeps the upstream license and NOTICE intact, and adds a set of focused customizations aimed at project‑scoped configuration, team orchestration, and workflow automation. The official upstream experience remains available; our extensions are delivered as an additional binary and docs so users can opt in.
 
-- The repository URL has been set to `https://github.com/hvkshetry/codex-custom`.
-- Use `codex-cli/scripts/stage_release.sh --repo hvkshetry/codex-custom --workflow-url <run-url>` to stage npm artifacts against your own releases.
-- Alternatively, build native binaries from `codex-rs/` and place them under `codex-cli/bin/` following the platform naming used by `bin/codex.js`.
+What’s different from upstream (high level):
+- Separate binary: `codex-custom` lives alongside the upstream `codex` (no behavior changes to upstream binary).
+- Project `.codex/` support: discover `.codex/config.toml` by walking up from `cwd` and deep‑merge it over `~/.codex/config.toml` (CLI `-c` overrides still have highest precedence).
+- Project agents and teams: load agents from `.codex/agents/*/config.toml` (+ `AGENTS.md`) and teams from `.codex/teams/*.toml` (+ `TEAM.md`). Agents can optionally inherit/merge MCP servers from the project. See `docs/agents-teams.md`.
+- Team selector mode: LLM‑based selector that chooses the next speaker from team members. In the TUI, selector reasoning and the final answer stream live into the transcript, with a “Selecting…” status line and a concise summary (e.g., `Selector → <name>: <preview>…`) before switching to the chosen agent. The selector can provide a tailored initial prompt on the lines after the agent name. See `docs/agents-teams.md` and `docs/examples/SELECTOR.md`.
+- Workflows: define sequential multi‑step flows in `.codex/workflows/<name>.toml` and run them via `codex-custom workflow run <name>`. Each step runs as a clean session (agent or team), with optional `max_turns`, profiles, and sandboxes. See `docs/workflows.md`.
+- Update notices point to this fork’s releases by default and can be overridden via `CODEX_LATEST_RELEASE_URL`/`CODEX_RELEASES_PAGE_URL`.
+- Documentation: additional setup and overview in `docs/README-CUSTOM.md` and `docs/SETUP.md`.
+
+Implementation notes (selected):
+- `codex-rs/cli`: adds the `codex-custom` binary (`src/main_custom.rs`) and a `workflow` subcommand; upstream subcommands remain available.
+- `codex-rs/core`: project discovery for `.codex/`, deep‑merge of project config over global config, agent/team loaders, and a lightweight workflow runner.
+- `codex-rs/tui`: enhanced selector UX streams reasoning/answers using the shared streaming controller (adds `flush_ready_now` for immediate emission) and shows a status/snippet during selection.
+
+Builds and releases from this fork:
+- Repository URL: `https://github.com/hvkshetry/codex-custom`.
+- Stage npm artifacts against this repository’s releases: `codex-cli/scripts/stage_release.sh --repo hvkshetry/codex-custom --workflow-url <run-url>`.
+- Alternatively, build native binaries from `codex-rs/` and place them under `codex-cli/bin/` following the platform naming in `bin/codex.js`.
+
+For a guided overview of the customizations and usage, see:
+- `docs/README-CUSTOM.md` – overview, motivation, feature list
+- `docs/SETUP.md` – building, installing, and verifying `codex-custom`
+- `docs/agents-teams.md` – project layout, agents/teams/selector
+- `docs/workflows.md` – defining and running workflows
 
 ## Quickstart
 
