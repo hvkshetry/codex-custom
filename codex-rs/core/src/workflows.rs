@@ -1,7 +1,8 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkflowToml {
@@ -51,10 +52,11 @@ pub fn discover_workflows(project_codex_dir: &Path) -> std::io::Result<Vec<Strin
     for entry in fs::read_dir(&dir)? {
         let entry = entry?;
         let p = entry.path();
-        if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("toml") {
-            if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-                out.push(stem.to_string());
-            }
+        if p.is_file()
+            && p.extension().and_then(|s| s.to_str()) == Some("toml")
+            && let Some(stem) = p.file_stem().and_then(|s| s.to_str())
+        {
+            out.push(stem.to_string());
         }
     }
     out.sort();
@@ -62,7 +64,9 @@ pub fn discover_workflows(project_codex_dir: &Path) -> std::io::Result<Vec<Strin
 }
 
 pub fn load_workflow(project_codex_dir: &Path, name: &str) -> std::io::Result<WorkflowDefinition> {
-    let file = project_codex_dir.join("workflows").join(format!("{name}.toml"));
+    let file = project_codex_dir
+        .join("workflows")
+        .join(format!("{name}.toml"));
     let raw = fs::read_to_string(&file).map_err(|e| {
         std::io::Error::new(
             e.kind(),
@@ -91,7 +95,7 @@ pub fn load_workflow(project_codex_dir: &Path, name: &str) -> std::io::Result<Wo
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     format!("unsupported step type '{other}' for step '{key}'"),
-                ))
+                ));
             }
         };
         steps.push(WorkflowStep {
@@ -109,4 +113,3 @@ pub fn load_workflow(project_codex_dir: &Path, name: &str) -> std::io::Result<Wo
         steps,
     })
 }
-

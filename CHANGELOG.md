@@ -16,6 +16,10 @@ You can install any of these versions: `npm install -g codex@version`
   - `docs/SETUP.md` – build, installation, configuration, and troubleshooting.
   - `docs/LICENSE-CUSTOM.md` – license notice and attribution for the customizations.
 
+### Changed
+
+- TUI selector UX: stream selector reasoning and answer live into the transcript, with a status line showing "Selecting… <snippet>" while the selector runs. When the selector finishes, the TUI inserts a concise summary (e.g., `Selector → <name>: <preview>…`) and switches to the chosen agent with a tailored initial prompt when provided.
+
 ## `0.1.2505172129`
 
 ### 🪲 Bug Fixes

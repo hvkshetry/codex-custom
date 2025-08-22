@@ -236,4 +236,3 @@ fn print_completion(cmd: CompletionCommand) {
     let name = "codex-custom";
     generate(cmd.shell, &mut app, name, &mut std::io::stdout());
 }
-

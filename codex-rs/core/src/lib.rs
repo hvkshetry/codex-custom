@@ -5,13 +5,13 @@
 // the TUI or the tracing stack).
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
+pub mod agents;
 mod apply_patch;
 mod bash;
 mod chat_completions;
 mod client;
 mod client_common;
 pub mod codex;
-pub mod agents;
 mod codex_conversation;
 pub use codex_conversation::CodexConversation;
 pub mod config;
@@ -45,7 +45,6 @@ mod openai_model_info;
 mod openai_tools;
 pub mod plan_tool;
 mod project_doc;
-pub mod workflows;
 mod rollout;
 pub(crate) mod safety;
 pub mod seatbelt;
@@ -55,6 +54,7 @@ pub mod turn_diff_tracker;
 pub mod user_agent;
 mod user_notification;
 pub mod util;
+pub mod workflows;
 pub use apply_patch::CODEX_APPLY_PATCH_ARG1;
 pub use safety::get_platform_sandbox;
 // Re-export the protocol types from the standalone `codex-protocol` crate so existing

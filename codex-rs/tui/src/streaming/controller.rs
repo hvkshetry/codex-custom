@@ -52,6 +52,24 @@ impl StreamController {
         }
     }
 
+    /// Immediately flush any queued, already-rendered lines for the active stream
+    /// into history without waiting for animation ticks.
+    pub(crate) fn flush_ready_now(&mut self, sink: &impl HistorySink) {
+        let Some(kind) = self.current_stream else {
+            return;
+        };
+        let step = {
+            let state = self.state_mut(kind);
+            state.drain_all()
+        };
+        if !step.history.is_empty() {
+            let mut lines: Lines = Vec::new();
+            self.emit_header_if_needed(kind, &mut lines);
+            lines.extend(step.history);
+            sink.insert_history(lines);
+        }
+    }
+
     pub(crate) fn reset_headers_for_new_turn(&mut self) {
         self.header.reset_for_new_turn();
     }

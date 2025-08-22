@@ -224,12 +224,7 @@ impl Config {
         // Pass the discovered project .codex dir (if any) so we can prefer
         // its AGENTS.md for user instructions.
         let project_codex_dir = find_project_codex_dir(&prelim_cwd);
-        Self::load_from_base_config_with_overrides(
-            cfg,
-            overrides,
-            codex_home,
-            project_codex_dir,
-        )
+        Self::load_from_base_config_with_overrides(cfg, overrides, codex_home, project_codex_dir)
     }
 }
 
@@ -537,7 +532,8 @@ impl Config {
         // Prefer project-scoped AGENTS.md when available, otherwise fall back
         // to global ~/.codex/AGENTS.md.
         let user_instructions = if let Some(ref dir) = project_codex_dir {
-            Self::load_instructions(Some(dir.as_path())).or_else(|| Self::load_instructions(Some(&codex_home)))
+            Self::load_instructions(Some(dir.as_path()))
+                .or_else(|| Self::load_instructions(Some(&codex_home)))
         } else {
             Self::load_instructions(Some(&codex_home))
         };

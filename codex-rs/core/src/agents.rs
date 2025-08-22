@@ -1,12 +1,17 @@
-use crate::config::{find_project_codex_dir, resolve_preliminary_cwd, ConfigToml};
+use crate::config::ConfigToml;
+use crate::config::find_project_codex_dir;
+use crate::config::resolve_preliminary_cwd;
 use crate::config_types::McpServerConfig;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Project-level discovery entrypoint. Returns the canonical `.codex` dir if present.
-pub fn discover_project_codex_dir(cwd_override: Option<PathBuf>) -> std::io::Result<Option<PathBuf>> {
+pub fn discover_project_codex_dir(
+    cwd_override: Option<PathBuf>,
+) -> std::io::Result<Option<PathBuf>> {
     let cwd = resolve_preliminary_cwd(cwd_override)?;
     Ok(find_project_codex_dir(&cwd))
 }
@@ -77,10 +82,11 @@ pub fn list_agents(project_codex_dir: &Path) -> std::io::Result<Vec<String>> {
     for entry in fs::read_dir(&agents_dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_dir() && path.join("config.toml").exists() {
-            if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-                out.push(name.to_string());
-            }
+        if path.is_dir()
+            && path.join("config.toml").exists()
+            && let Some(name) = path.file_name().and_then(|s| s.to_str())
+        {
+            out.push(name.to_string());
         }
     }
     out.sort();
@@ -115,29 +121,32 @@ pub fn load_agent(
         .unwrap_or_else(|| dir.join("AGENTS.md"));
     let prompt = fs::read_to_string(&prompt_path).ok().and_then(|s| {
         let s = s.trim();
-        if s.is_empty() { None } else { Some(s.to_string()) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
     });
 
     // Resolve MCP servers. Default policy: distinct (do not inherit).
     let mut mcp = cfg.mcp_servers.clone();
     // Load optional `mcp.toml` file if present.
     let mcp_file = dir.join("mcp.toml");
-    if mcp_file.exists() {
-        if let Ok(s) = fs::read_to_string(&mcp_file) {
-            if let Ok(val) = toml::from_str::<HashMap<String, McpServerConfig>>(&s) {
-                // keys in mcp.toml override any inline entries with the same name.
-                for (k, v) in val.into_iter() {
-                    mcp.insert(k, v);
-                }
-            }
+    if mcp_file.exists()
+        && let Ok(s) = fs::read_to_string(&mcp_file)
+        && let Ok(val) = toml::from_str::<HashMap<String, McpServerConfig>>(&s)
+    {
+        // keys in mcp.toml override any inline entries with the same name.
+        for (k, v) in val.into_iter() {
+            mcp.insert(k, v);
         }
     }
     // Optionally inherit from project config.
-    if cfg.inherit_mcp_from_project {
-        if let Some(project_map) = Some(project_cfg.mcp_servers.clone()) {
-            for (k, v) in project_map.into_iter() {
-                mcp.entry(k).or_insert(v);
-            }
+    if cfg.inherit_mcp_from_project
+        && let Some(project_map) = Some(project_cfg.mcp_servers.clone())
+    {
+        for (k, v) in project_map.into_iter() {
+            mcp.entry(k).or_insert(v);
         }
     }
 
@@ -163,10 +172,11 @@ pub fn list_teams(project_codex_dir: &Path) -> std::io::Result<Vec<String>> {
     for entry in fs::read_dir(&teams_dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                out.push(stem.to_string());
-            }
+        if path.is_file()
+            && path.extension().and_then(|s| s.to_str()) == Some("toml")
+            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+        {
+            out.push(stem.to_string());
         }
     }
     out.sort();
@@ -211,8 +221,16 @@ pub fn load_team(project_codex_dir: &Path, name: &str) -> std::io::Result<TeamDe
     };
     let prompt = fs::read_to_string(&prompt_path).ok().and_then(|s| {
         let s = s.trim();
-        if s.is_empty() { None } else { Some(s.to_string()) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
     });
 
-    Ok(TeamDefinition { file, config: cfg, prompt })
+    Ok(TeamDefinition {
+        file,
+        config: cfg,
+        prompt,
+    })
 }

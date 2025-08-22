@@ -34,7 +34,6 @@ pub(crate) use chat_composer::ChatComposer;
 pub(crate) use chat_composer::InputResult;
 
 use approval_modal_view::ApprovalModalView;
-pub(crate) use list_selection_view::SelectionAction;
 pub(crate) use list_selection_view::SelectionItem;
 use status_indicator_view::StatusIndicatorView;
 

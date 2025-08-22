@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use codex_core::config::Config;
 use crate::parse_leading_tag;
+use codex_core::config::Config;
 use codex_core::protocol::AgentMessageDeltaEvent;
 use codex_core::protocol::AgentMessageEvent;
 use codex_core::protocol::AgentReasoningDeltaEvent;
@@ -590,13 +590,17 @@ impl ChatWidget<'_> {
 
         // Intercept start-of-line "@agent ..." requests to switch sessions.
         if let Some((tag, rest)) = Self::parse_leading_tag(&text) {
-            if tag.eq_ignore_ascii_case("workflow") {
-                if let Some(ref rest_text) = rest {
-                    let name = rest_text.split_whitespace().next().unwrap_or("").to_string();
-                    if !name.is_empty() {
-                        self.app_event_tx.send(AppEvent::RunWorkflow { name });
-                        return;
-                    }
+            if tag.eq_ignore_ascii_case("workflow")
+                && let Some(ref rest_text) = rest
+            {
+                let name = rest_text
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                if !name.is_empty() {
+                    self.app_event_tx.send(AppEvent::RunWorkflow { name });
+                    return;
                 }
             }
             // Defer handling to the App; do not submit this as user input.
@@ -772,7 +776,6 @@ impl ChatWidget<'_> {
             tracing::error!("failed to submit op: {e}");
         }
     }
-
 
     pub(crate) fn token_usage(&self) -> &TokenUsage {
         &self.total_token_usage

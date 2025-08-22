@@ -77,7 +77,11 @@ pub(crate) enum AppEvent {
     },
 
     // UI status control for long-running background (e.g., selector):
-    ShowStatus { text: String },
-    UpdateStatus { text: String },
+    ShowStatus {
+        text: String,
+    },
+    UpdateStatus {
+        text: String,
+    },
     HideStatus,
 }

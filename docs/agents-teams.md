@@ -106,6 +106,14 @@ When `mode = "selector"`, Codex constructs a selection prompt for the configured
 
 Output requirement: one exact member name from the candidate list, with no explanations.
 
+### TUI Behavior
+
+When a team uses `mode = "selector"`, the TUI streams the selector model's output in real time:
+- Shows a transient status line like `Selecting… <snippet>` while streaming reasoning.
+- Streams the selector’s final answer into the transcript.
+- After selection, inserts a concise summary (e.g., `Selector → <name>: <preview>…`) and switches to the chosen agent.
+- If the selector provides a tailored prompt under the first line (the agent name), the TUI uses it as the initial prompt for the chosen agent; otherwise it falls back to the user’s original message.
+
 ## Design Rationale (based on Agno and AutoGen)
 
 - Agno: Teams have distinct system instructions and coordination modes (route/coordinate/collaborate). Teams can pass certain runtime flags to members but member tools remain separate. Success criteria and policies are defined at the team level.

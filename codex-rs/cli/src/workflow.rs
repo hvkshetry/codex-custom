@@ -1,12 +1,19 @@
 use clap::Parser;
 use codex_common::CliConfigOverrides;
-use codex_core::agents;
-use codex_core::config::{self, Config, ConfigOverrides};
-use codex_core::workflows::{self, StepKind};
-use std::path::PathBuf;
 use codex_core::ConversationManager;
 use codex_core::NewConversation;
-use codex_core::protocol::{Event, EventMsg, InputItem, Op, TaskCompleteEvent};
+use codex_core::agents;
+use codex_core::config::Config;
+use codex_core::config::ConfigOverrides;
+use codex_core::config::{self};
+use codex_core::protocol::Event;
+use codex_core::protocol::EventMsg;
+use codex_core::protocol::InputItem;
+use codex_core::protocol::Op;
+use codex_core::protocol::TaskCompleteEvent;
+use codex_core::workflows::StepKind;
+use codex_core::workflows::{self};
+use std::path::PathBuf;
 use tracing::error;
 
 #[derive(Debug, Parser)]
@@ -46,7 +53,11 @@ pub struct WorkflowRunArgs {
     pub full_auto: bool,
 
     /// EXTREMELY DANGEROUS. Skip confirmations and sandboxing.
-    #[arg(long = "dangerously-bypass-approvals-and-sandbox", alias = "yolo", default_value_t = false)]
+    #[arg(
+        long = "dangerously-bypass-approvals-and-sandbox",
+        alias = "yolo",
+        default_value_t = false
+    )]
     pub dangerously_bypass_approvals_and_sandbox: bool,
 
     /// Configuration profile from config.toml to specify defaults.
@@ -54,9 +65,14 @@ pub struct WorkflowRunArgs {
     pub config_profile: Option<String>,
 }
 
-pub async fn run_main(cli: WorkflowCli, codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
+pub async fn run_main(
+    cli: WorkflowCli,
+    codex_linux_sandbox_exe: Option<PathBuf>,
+) -> anyhow::Result<()> {
     match cli.cmd {
-        WorkflowSubcommand::Run(args) => run_workflow(cli.config_overrides, args, codex_linux_sandbox_exe).await,
+        WorkflowSubcommand::Run(args) => {
+            run_workflow(cli.config_overrides, args, codex_linux_sandbox_exe).await
+        }
     }
 }
 
@@ -89,10 +105,8 @@ async fn run_workflow(
     }
 
     // Load project config.toml as TOML for agent MCP inheritance.
-    let project_cfg_toml = config::load_config_as_toml_with_cli_overrides(
-        &config::find_codex_home()?,
-        Vec::new(),
-    )?;
+    let project_cfg_toml =
+        config::load_config_as_toml_with_cli_overrides(&config::find_codex_home()?, Vec::new())?;
 
     // Build a base Config that will be cloned and adjusted per step.
     let overrides = ConfigOverrides {
@@ -123,15 +137,35 @@ async fn run_workflow(
 
     // Run each step sequentially as a clean session.
     for (idx, step) in wf.steps.iter().enumerate() {
-        println!("--- Step {}/{}: {} {}", idx + 1, wf.steps.len(), match step.kind { StepKind::Agent => "agent", StepKind::Team => "team" }, step.id);
+        println!(
+            "--- Step {}/{}: {} {}",
+            idx + 1,
+            wf.steps.len(),
+            match step.kind {
+                StepKind::Agent => "agent",
+                StepKind::Team => "team",
+            },
+            step.id
+        );
 
         // Derive agent + prompt for this step.
-        let (_agent_name, combined_prompt, model_override, provider_override, include_plan, include_apply, mcp_servers) = match step.kind {
+        let (
+            _agent_name,
+            combined_prompt,
+            model_override,
+            provider_override,
+            include_plan,
+            include_apply,
+            mcp_servers,
+        ) = match step.kind {
             StepKind::Agent => {
                 let def = agents::load_agent(&project_dir, &step.id, &project_cfg_toml)?;
                 (
                     step.id.clone(),
-                    step.prompt.clone().or(def.prompt.clone()).unwrap_or_default(),
+                    step.prompt
+                        .clone()
+                        .or(def.prompt.clone())
+                        .unwrap_or_default(),
                     def.config.model.clone(),
                     def.config.model_provider.clone(),
                     def.config.include_plan_tool,
@@ -141,14 +175,16 @@ async fn run_workflow(
             }
             StepKind::Team => {
                 let team = agents::load_team(&project_dir, &step.id)?;
-                let first_member = team
-                    .config
-                    .members
-                    .first()
-                    .cloned()
-                    .ok_or_else(|| anyhow::anyhow!(format!("Team '{}' has no members", step.id)))?;
+                let first_member =
+                    team.config.members.first().cloned().ok_or_else(|| {
+                        anyhow::anyhow!(format!("Team '{}' has no members", step.id))
+                    })?;
                 let agent = agents::load_agent(&project_dir, &first_member, &project_cfg_toml)?;
-                let combined_prompt = match (team.prompt.as_ref(), agent.prompt.as_ref(), step.prompt.as_ref()) {
+                let combined_prompt = match (
+                    team.prompt.as_ref(),
+                    agent.prompt.as_ref(),
+                    step.prompt.as_ref(),
+                ) {
                     // Priority: explicit step prompt if provided, otherwise TEAM + AGENT prompts.
                     (_t, _a, Some(p)) => Some(p.clone()),
                     (Some(t), Some(a), None) => Some(format!("{t}\n\n{a}")),
@@ -175,19 +211,29 @@ async fn run_workflow(
             step_config.model = m.clone();
             // Also refresh family and caps if needed – rely on Config::load for this; here we keep it simple.
         }
-        if let Some(provider_id) = provider_override.as_ref() {
-            if let Some(info) = step_config.model_providers.get(provider_id).cloned() {
-                step_config.model_provider_id = provider_id.clone();
-                step_config.model_provider = info;
-            }
+        if let Some(provider_id) = provider_override.as_ref()
+            && let Some(info) = step_config.model_providers.get(provider_id).cloned()
+        {
+            step_config.model_provider_id = provider_id.clone();
+            step_config.model_provider = info;
         }
-        if let Some(v) = include_plan { step_config.include_plan_tool = v; }
-        if let Some(v) = include_apply { step_config.include_apply_patch_tool = v; }
+        if let Some(v) = include_plan {
+            step_config.include_plan_tool = v;
+        }
+        if let Some(v) = include_apply {
+            step_config.include_apply_patch_tool = v;
+        }
         step_config.base_instructions = Some(combined_prompt.clone());
         step_config.mcp_servers = mcp_servers;
 
         // Run this step as a clean session using a minimal inline runner.
-        run_step_with_config(step_config, combined_prompt, json, last_message_file.clone()).await?;
+        run_step_with_config(
+            step_config,
+            combined_prompt,
+            json,
+            last_message_file.clone(),
+        )
+        .await?;
     }
 
     Ok(())
@@ -200,17 +246,23 @@ async fn run_step_with_config(
     json_mode: bool,
     last_message_file: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-
     // Create conversation
     let conversation_manager = ConversationManager::default();
-    let NewConversation { conversation_id: _, conversation, session_configured: _ } =
-        conversation_manager.new_conversation(config.clone()).await?;
+    let NewConversation {
+        conversation_id: _,
+        conversation,
+        session_configured: _,
+    } = conversation_manager
+        .new_conversation(config.clone())
+        .await?;
 
     // Print a compact config summary and the prompt (simple version)
     if !json_mode {
         let entries = codex_common::create_config_summary_entries(&config);
         eprintln!("Workflow step config:");
-        for (k, v) in entries { eprintln!("- {k} {v}"); }
+        for (k, v) in entries {
+            eprintln!("- {k} {v}");
+        }
         eprintln!("--------\nUser instructions:\n{prompt}");
     }
 
@@ -223,10 +275,18 @@ async fn run_step_with_config(
                 match conversation.next_event().await {
                     Ok(event) => {
                         let is_shutdown_complete = matches!(event.msg, EventMsg::ShutdownComplete);
-                        if let Err(e) = tx.send(event) { error!("send event: {e:?}"); break; }
-                        if is_shutdown_complete { break; }
+                        if let Err(e) = tx.send(event) {
+                            error!("send event: {e:?}");
+                            break;
+                        }
+                        if is_shutdown_complete {
+                            break;
+                        }
                     }
-                    Err(e) => { error!("next_event: {e:?}"); break; }
+                    Err(e) => {
+                        error!("next_event: {e:?}");
+                        break;
+                    }
                 }
             }
         });
@@ -234,17 +294,24 @@ async fn run_step_with_config(
 
     // Send prompt
     let _ = conversation
-        .submit(Op::UserInput { items: vec![InputItem::Text { text: prompt }] })
+        .submit(Op::UserInput {
+            items: vec![InputItem::Text { text: prompt }],
+        })
         .await?;
 
     // Drain until TaskComplete, then Shutdown
     let mut last_message: Option<String> = None;
     while let Some(event) = rx.recv().await {
-        if let EventMsg::TaskComplete(TaskCompleteEvent { ref last_agent_message }) = event.msg {
+        if let EventMsg::TaskComplete(TaskCompleteEvent {
+            ref last_agent_message,
+        }) = event.msg
+        {
             last_message = last_agent_message.clone();
             conversation.submit(Op::Shutdown).await?;
         }
-        if matches!(event.msg, EventMsg::ShutdownComplete) { break; }
+        if matches!(event.msg, EventMsg::ShutdownComplete) {
+            break;
+        }
     }
 
     // Output last message
@@ -253,7 +320,10 @@ async fn run_step_with_config(
             let _ = std::fs::write(path, &text);
         }
         if json_mode {
-            println!("{{\"type\":\"last_message\",\"text\":{}}}", serde_json::to_string(&text)?);
+            println!(
+                "{{\"type\":\"last_message\",\"text\":{}}}",
+                serde_json::to_string(&text)?
+            );
         } else {
             println!("\n{text}");
         }
